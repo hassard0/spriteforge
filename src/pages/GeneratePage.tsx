@@ -11,6 +11,42 @@ import { Sparkles, Loader2, Download, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import type { AnimationType, SpriteStyle, PaletteType, Resolution, FacingDirection, SpriteSheet } from '@/types/sprite';
 
+/** Load a base64/data-URL image and draw it onto a canvas at the target size */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/** Stitch an array of frame data-URLs into a single horizontal sprite sheet */
+async function stitchFrames(frameSrcs: string[], frameW: number, frameH: number): Promise<string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = frameW * frameSrcs.length;
+  canvas.height = frameH;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+
+  for (let i = 0; i < frameSrcs.length; i++) {
+    try {
+      const img = await loadImage(frameSrcs[i]);
+      ctx.drawImage(img, 0, 0, img.width, img.height, i * frameW, 0, frameW, frameH);
+    } catch (e) {
+      console.warn(`Failed to load frame ${i}, using placeholder`);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(i * frameW, 0, frameW, frameH);
+      ctx.fillStyle = '#666';
+      ctx.font = `${Math.max(8, frameW / 4)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`${i + 1}`, i * frameW + frameW / 2, frameH / 2);
+    }
+  }
+
+  return canvas.toDataURL('image/png');
+}
+
 const ANIM_TYPES: { value: AnimationType; label: string }[] = [
   { value: 'idle', label: 'Idle' },
   { value: 'walk', label: 'Walk' },
@@ -62,12 +98,12 @@ export default function GeneratePage() {
 
     const fw = parseInt(resolution);
 
-    // Progress animation
+    // Progress animation - slower since we're generating multiple frames
     let progressVal = 0;
     const progressInterval = setInterval(() => {
-      progressVal = Math.min(progressVal + 1, 90);
+      progressVal = Math.min(progressVal + 0.5, 90);
       setProgress(progressVal);
-    }, 300);
+    }, 500);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-sprite', {
@@ -85,14 +121,19 @@ export default function GeneratePage() {
       clearInterval(progressInterval);
 
       if (error) {
-        // supabase.functions.invoke returns error for non-2xx, try to get body
         const errorMsg = typeof data === 'object' && data?.error ? data.error : error.message || 'Generation failed';
         throw new Error(errorMsg);
       }
 
-      if (!data?.imageData) {
-        throw new Error('No image data in response. The AI model may have declined your prompt.');
+      if (!data?.frames || !Array.isArray(data.frames) || data.frames.length === 0) {
+        throw new Error('No frames generated. The AI model may have declined your prompt.');
       }
+
+      setProgress(95);
+
+      // Stitch individual frame images into a single sprite sheet
+      const actualFrameCount = data.frames.length;
+      const spriteSheetDataUrl = await stitchFrames(data.frames, fw, fw);
 
       setProgress(100);
 
@@ -104,11 +145,11 @@ export default function GeneratePage() {
         style,
         palette,
         resolution,
-        frameCount,
+        frameCount: actualFrameCount,
         frameWidth: fw,
         frameHeight: fw,
         facingDirection: facing,
-        imageData: data.imageData,
+        imageData: spriteSheetDataUrl,
         createdAt: new Date().toISOString(),
         collectionIds: [],
         tags: [],

@@ -5,6 +5,92 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+async function generateImage(apiKey: string, prompt: string, referenceImage?: string): Promise<string | null> {
+  const content: any[] = [{ type: "text", text: prompt }];
+  
+  if (referenceImage) {
+    content.push({
+      type: "image_url",
+      image_url: { url: referenceImage },
+    });
+  }
+
+  const response = await fetch(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-image",
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+    }),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    console.error(`AI API error ${response.status}:`, txt.slice(0, 500));
+    if (response.status === 429) throw new Error("RATE_LIMITED");
+    if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
+    throw new Error(`AI gateway returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  const message = data.choices?.[0]?.message;
+
+  // Extract image from response - try all known paths
+  let url = message?.images?.[0]?.image_url?.url;
+  if (!url && typeof message?.content === "string") {
+    const m = message.content.match(/(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)/);
+    if (m) url = m[1];
+  }
+  if (!url && Array.isArray(message?.content)) {
+    const img = message.content.find((p: any) => p.type === "image_url" || p.type === "image");
+    url = img?.image_url?.url || img?.url;
+  }
+
+  return url || null;
+}
+
+// Animation pose descriptions for each type
+const POSE_GUIDES: Record<string, (frame: number, total: number) => string> = {
+  idle: (f, t) => {
+    const phase = f / t;
+    const breathe = Math.sin(phase * Math.PI * 2);
+    return breathe > 0
+      ? `standing still, slight upward breathing motion, relaxed pose, frame ${f + 1} of ${t}`
+      : `standing still, slight downward breathing motion, relaxed pose, frame ${f + 1} of ${t}`;
+  },
+  walk: (f, t) => {
+    const poses = ["left foot forward right arm forward", "feet together arms at sides", "right foot forward left arm forward", "feet together arms at sides"];
+    return `walking cycle, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
+  },
+  run: (f, t) => {
+    const poses = ["left leg extended back right arm forward leaning", "both feet off ground mid-stride", "right leg extended back left arm forward leaning", "landing foot down"];
+    return `running cycle, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
+  },
+  attack: (f, t) => {
+    const poses = ["winding up arm pulled back", "mid-swing arm moving forward", "full extension striking forward", "follow through arm extended", "recovering returning to stance"];
+    return `attack animation, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
+  },
+  jump: (f, t) => {
+    const phase = f / (t - 1);
+    if (phase < 0.2) return `crouching down preparing to jump, frame ${f + 1} of ${t}`;
+    if (phase < 0.5) return `rising upward arms up jumping, frame ${f + 1} of ${t}`;
+    if (phase < 0.8) return `at peak of jump floating, frame ${f + 1} of ${t}`;
+    return `descending legs down landing, frame ${f + 1} of ${t}`;
+  },
+  death: (f, t) => {
+    const phase = f / (t - 1);
+    if (phase < 0.3) return `hit reaction flinching backward, frame ${f + 1} of ${t}`;
+    if (phase < 0.6) return `falling over tilting sideways, frame ${f + 1} of ${t}`;
+    return `collapsed on ground lying flat, frame ${f + 1} of ${t}`;
+  },
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -14,107 +100,99 @@ serve(async (req) => {
     const { prompt, animationType, style, palette, resolution, frameCount, facingDirection } = await req.json();
 
     if (!prompt || !animationType || !resolution || !frameCount) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Missing required fields" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const fw = parseInt(resolution);
-    const paletteDesc = palette === 'nes' ? 'NES 54-color palette' :
-      palette === 'snes' ? 'SNES 256-color palette' :
-      palette === 'gameboy' ? 'Game Boy 4-shade green palette' :
-      'vibrant custom palette';
-    const styleDesc = style === 'pixel-art' ? 'pixel art' :
-      style === 'chibi' ? 'chibi style' : 'cel-shaded';
+    const styleDesc = style === "pixel-art" ? "pixel art" : style === "chibi" ? "chibi" : "cel-shaded";
+    const paletteDesc = palette === "nes" ? "NES color palette" : palette === "snes" ? "SNES palette" : palette === "gameboy" ? "Game Boy 4-shade green" : "vibrant colors";
 
-    const aiPrompt = `Create a ${styleDesc} sprite sheet for a game character: ${prompt}. 
-The sprite sheet should show a "${animationType}" animation with exactly ${frameCount} frames arranged in a single horizontal row.
-Each frame is ${fw}x${fw} pixels. The total image should be ${fw * frameCount}x${fw} pixels.
-Use a ${paletteDesc}. The character should face ${facingDirection}.
-The background of each frame should be transparent or a single solid dark color.
-Make it look like a professional retro game sprite sheet. Each frame should show a slightly different pose for the ${animationType} animation cycle.`;
+    // STEP 1: Generate base character image
+    console.log("Step 1: Generating base character...");
+    const basePrompt = `Create a single ${styleDesc} game character sprite: ${prompt}. 
+Standing in a neutral pose facing ${facingDirection}. ${fw}x${fw} pixel resolution. 
+Use ${paletteDesc}. Clean solid background. The character should be centered and well-defined.
+This is a game sprite - make it clear, iconic, and suitable for animation.`;
 
-    console.log("Generating sprite with prompt:", aiPrompt.slice(0, 100));
+    const baseImage = await generateImage(LOVABLE_API_KEY, basePrompt);
+    if (!baseImage) {
+      throw new Error("Failed to generate base character. Try a different description.");
+    }
+    console.log("Base character generated successfully");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [{ role: "user", content: aiPrompt }],
-        modalities: ["image", "text"],
-      }),
-    });
+    // STEP 2: Generate each animation frame using image-to-image
+    const frames: string[] = [];
+    const getPose = POSE_GUIDES[animationType] || POSE_GUIDES.idle;
 
-    if (!response.ok) {
-      const status = response.status;
-      if (status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+    // We'll limit concurrent requests to avoid rate limiting
+    for (let i = 0; i < frameCount; i++) {
+      const poseDesc = getPose(i, frameCount);
+      console.log(`Step 2: Generating frame ${i + 1}/${frameCount}: ${poseDesc.slice(0, 60)}`);
+
+      const framePrompt = `Edit this ${styleDesc} game character sprite to show: ${poseDesc}.
+Keep the SAME character design, colors, and ${styleDesc} style. Same ${fw}x${fw} pixel size.
+Only change the pose/position for this animation frame. Keep the background the same.
+Maintain consistent proportions and art style with the reference image.`;
+
+      let frameImage: string | null = null;
+      let retries = 0;
+      
+      while (!frameImage && retries < 2) {
+        try {
+          // Small delay between requests to avoid rate limiting
+          if (i > 0 || retries > 0) {
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, baseImage);
+        } catch (e) {
+          if ((e as Error).message === "RATE_LIMITED") {
+            console.log("Rate limited, waiting 3s...");
+            await new Promise((r) => setTimeout(r, 3000));
+            retries++;
+          } else {
+            throw e;
+          }
+        }
       }
-      if (status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errorText = await response.text();
-      console.error("AI gateway error:", status, errorText);
-      throw new Error(`AI gateway returned ${status}`);
+
+      // Fall back to base image if frame generation fails
+      frames.push(frameImage || baseImage);
     }
 
-    const data = await response.json();
-    console.log("AI response keys:", JSON.stringify(Object.keys(data)));
-    console.log("Choices count:", data.choices?.length);
-    
-    const message = data.choices?.[0]?.message;
-    console.log("Message keys:", message ? JSON.stringify(Object.keys(message)) : "no message");
-    
-    // Try multiple possible image locations in the response
-    let imageUrl = message?.images?.[0]?.image_url?.url;
-    
-    // Some models return inline image content differently
-    if (!imageUrl && message?.content) {
-      // Check if content itself contains a data URI
-      const match = typeof message.content === 'string' 
-        ? message.content.match(/(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)/)
-        : null;
-      if (match) {
-        imageUrl = match[1];
-      }
-    }
-    
-    // Check for image in multimodal content array
-    if (!imageUrl && Array.isArray(message?.content)) {
-      const imgPart = message.content.find((p: any) => p.type === 'image_url' || p.type === 'image');
-      imageUrl = imgPart?.image_url?.url || imgPart?.url;
-    }
-
-    if (!imageUrl) {
-      console.error("Full AI response:", JSON.stringify(data).slice(0, 2000));
-      throw new Error("No image returned from AI model. The model may have declined the request.");
-    }
+    console.log(`Generated ${frames.length} frames successfully`);
 
     return new Response(
-      JSON.stringify({ imageData: imageUrl }),
+      JSON.stringify({
+        baseImage,
+        frames,
+        frameWidth: fw,
+        frameHeight: fw,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
     console.error("generate-sprite error:", e);
+    
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    let status = 500;
+    if (msg === "RATE_LIMITED") status = 429;
+    if (msg === "CREDITS_EXHAUSTED") status = 402;
+
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: msg === "RATE_LIMITED"
+          ? "Rate limited. Please try again in a moment."
+          : msg === "CREDITS_EXHAUSTED"
+          ? "AI credits exhausted. Add funds in Settings > Workspace > Usage."
+          : msg,
+      }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
