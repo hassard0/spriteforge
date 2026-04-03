@@ -93,10 +93,10 @@ async function simplifySpritePrompt(apiKey: string, prompt: string, animationTyp
   return rewrittenPrompt && rewrittenPrompt !== prompt ? rewrittenPrompt : null;
 }
 
-async function generateImage(apiKey: string, prompt: string, referenceImage?: string): Promise<string | null> {
+async function generateImage(apiKey: string, prompt: string, referenceImages: string[] = []): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
 
-  if (referenceImage) {
+  for (const referenceImage of referenceImages.filter(Boolean)) {
     content.push({
       type: "image_url",
       image_url: { url: referenceImage },
@@ -128,7 +128,6 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
   const message = data.choices?.[0]?.message;
   const refusal = message?.refusal;
 
-  // Log response structure for debugging
   const finishReason = data.choices?.[0]?.finish_reason;
   console.log("AI response:", JSON.stringify({
     messageKeys: message ? Object.keys(message) : [],
@@ -146,7 +145,6 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
     return null;
   }
 
-  // Extract image from response - try all known paths
   let url = message?.images?.[0]?.image_url?.url;
   if (!url && typeof message?.content === "string") {
     const m = message.content.match(/(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)/);
@@ -160,41 +158,108 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
   return url || null;
 }
 
-// Animation pose descriptions for each type
 const POSE_GUIDES: Record<string, (frame: number, total: number) => string> = {
   idle: (f, t) => {
     const phase = f / t;
     const breathe = Math.sin(phase * Math.PI * 2);
     return breathe > 0
-      ? `standing still, slight upward breathing motion, relaxed pose, frame ${f + 1} of ${t}`
-      : `standing still, slight downward breathing motion, relaxed pose, frame ${f + 1} of ${t}`;
+      ? `standing still, chest slightly lifted, shoulders slightly raised, arms relaxed with tiny sway, frame ${f + 1} of ${t}`
+      : `standing still, chest slightly lowered, shoulders relaxed, arms relaxed with tiny sway, frame ${f + 1} of ${t}`;
   },
   walk: (f, t) => {
     const phase = WALK_PHASES[Math.floor((f / t) * WALK_PHASES.length) % WALK_PHASES.length];
-    return `walking cycle, ${phase}, frame ${f + 1} of ${t}`;
+    return `walking cycle, ${phase}, left and right limbs clearly offset in opposite directions, frame ${f + 1} of ${t}`;
   },
   run: (f, t) => {
     const phase = RUN_PHASES[Math.floor((f / t) * RUN_PHASES.length) % RUN_PHASES.length];
-    return `running cycle, ${phase}, frame ${f + 1} of ${t}`;
+    return `running cycle, ${phase}, strong arm pump, clear stride separation, forward-leaning athletic motion, frame ${f + 1} of ${t}`;
   },
   attack: (f, t) => {
-    const poses = ["winding up arm pulled back", "mid-swing arm moving forward", "full extension striking forward", "follow through arm extended", "recovering returning to stance"];
+    const poses = ["winding up with striking arm pulled far back and chest twisted", "mid-swing with shoulders rotating forward", "full extension striking forward with weight committed", "follow through with torso carried past center", "recovering back into stance with arms resetting"];
     return `attack animation, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
   },
   jump: (f, t) => {
     const phase = f / (t - 1);
-    if (phase < 0.2) return `crouching down preparing to jump, frame ${f + 1} of ${t}`;
-    if (phase < 0.5) return `rising upward arms up jumping, frame ${f + 1} of ${t}`;
-    if (phase < 0.8) return `at peak of jump floating, frame ${f + 1} of ${t}`;
-    return `descending legs down landing, frame ${f + 1} of ${t}`;
+    if (phase < 0.2) return `crouching low preparing to jump, knees bent, arms down and back, frame ${f + 1} of ${t}`;
+    if (phase < 0.5) return `rising upward, legs extending, arms lifting, frame ${f + 1} of ${t}`;
+    if (phase < 0.8) return `at peak of jump, body stretched upward, frame ${f + 1} of ${t}`;
+    return `descending to land, knees preparing to absorb impact, arms dropping, frame ${f + 1} of ${t}`;
   },
   death: (f, t) => {
     const phase = f / (t - 1);
-    if (phase < 0.3) return `hit reaction flinching backward, frame ${f + 1} of ${t}`;
-    if (phase < 0.6) return `falling over tilting sideways, frame ${f + 1} of ${t}`;
-    return `collapsed on ground lying flat, frame ${f + 1} of ${t}`;
+    if (phase < 0.3) return `hit reaction, torso jerking backward, arms losing control, frame ${f + 1} of ${t}`;
+    if (phase < 0.6) return `falling over with weight collapsing sideways, frame ${f + 1} of ${t}`;
+    return `collapsed on ground, limbs slack, frame ${f + 1} of ${t}`;
   },
 };
+
+function getSecondaryMotion(animationType: string): string {
+  switch (animationType) {
+    case "idle":
+      return "tiny breathing motion in the chest and shoulders, with a subtle cloth or hair sway";
+    case "walk":
+      return "gentle vertical body bob, shoulders twisting opposite the hips, and light cloth or hair sway";
+    case "run":
+      return "strong vertical body bob, shoulders twisting opposite the hips, slight cloth or hair bounce, and a few small sweat droplets near the head to show exertion";
+    case "attack":
+      return "clear torso twist, shoulder rotation, and trailing secondary motion in clothing or hair";
+    case "jump":
+      return "upward lift in clothing or hair during ascent and compressed impact on landing";
+    case "death":
+      return "progressive loss of tension so the limbs feel heavier and looser each frame";
+    default:
+      return "natural secondary motion that supports the pose without changing the character design";
+  }
+}
+
+type FramePromptOptions = {
+  animationType: string;
+  characterPrompt: string;
+  frameIndex: number;
+  totalFrames: number;
+  poseDesc: string;
+  previousPoseDesc: string | null;
+  styleDesc: string;
+  frameSize: number;
+};
+
+function buildFramePrompt({
+  animationType,
+  characterPrompt,
+  frameIndex,
+  totalFrames,
+  poseDesc,
+  previousPoseDesc,
+  styleDesc,
+  frameSize,
+}: FramePromptOptions): string {
+  const locomotionRule = animationType === "walk" || animationType === "run"
+    ? "Arms must counter-swing opposite the legs, with one side forward while the other side moves back."
+    : "The body posture must clearly advance through the action from the previous frame.";
+
+  return `Create the NEXT animation frame for this exact ${styleDesc} sprite character.
+Reference image 1 is the canonical character design.${previousPoseDesc ? " Reference image 2 is the previous animation frame." : ""}
+
+DO NOT keep the same pose as the reference image.
+This frame must show clear visible movement in the limbs and body.
+
+Target animation: ${animationType}.
+Previous frame pose: ${previousPoseDesc ?? "base character pose"}.
+New target pose for frame ${frameIndex + 1} of ${totalFrames}: ${poseDesc}.
+
+Required body changes:
+- Move the left arm and right arm into visibly different positions.
+- Move the left leg and right leg into visibly different positions.
+- Change the torso angle, shoulder line, and head height to match the action.
+- Make the silhouette clearly different from the previous frame while preserving the same character.
+- ${locomotionRule}
+- Add this secondary motion: ${getSecondaryMotion(animationType)}.
+
+Character description: ${characterPrompt}.
+Keep the exact same face, outfit, colors, proportions, and overall character identity.
+Keep the framing locked: ${FRAMING_RULES}. Same ${frameSize}x${frameSize} pixel size.
+Output one single full-body sprite frame only. No sprite sheet, no duplicate character, no redesign.`;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -227,13 +292,11 @@ Use ${paletteDesc}. ${FRAMING_RULES}.
 This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
     const buildSimplePrompt = (characterPrompt: string) => `Generate a ${styleDesc} game character sprite: ${characterPrompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
 
-    // STEP 1: Generate base character image
     console.log("Step 1: Generating base character...");
     let characterPrompt = prompt.trim();
 
     let baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt));
 
-    // Retry once with a simpler prompt if the first attempt failed
     if (!baseImage) {
       console.log("First attempt failed, retrying with simplified prompt...");
       await new Promise((r) => setTimeout(r, 1500));
@@ -260,35 +323,34 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
     }
     console.log("Base character generated successfully");
 
-    // STEP 2: Generate each animation frame using image-to-image
     const frames: string[] = [baseImage];
 
-    // We'll limit concurrent requests to avoid rate limiting
     for (let i = 1; i < totalFrames; i++) {
       const poseDesc = getPose(i, totalFrames);
+      const previousPoseDesc = getPose(i - 1, totalFrames);
       console.log(`Step 2: Generating frame ${i + 1}/${totalFrames}: ${poseDesc.slice(0, 60)}`);
 
-      const framePrompt = `IMPORTANT: Change the pose of this character sprite. Do NOT keep the same pose.
-
-This is frame ${i + 1} of a ${totalFrames}-frame ${animationType} animation. The character MUST be in this exact pose: ${poseDesc}.
-
-Move the arms and legs into the described position. The limbs MUST be in different positions than the reference image.
-
-Character: ${characterPrompt}. Style: ${styleDesc}. Size: ${fw}x${fw} pixels.
-Keep the same character design, colors, outfit, and proportions. Change ONLY the body pose — move arms, legs, torso as described above.
-${FRAMING_RULES}. Do not create a sprite sheet — output a single frame.`;
+      const framePrompt = buildFramePrompt({
+        animationType,
+        characterPrompt,
+        frameIndex: i,
+        totalFrames,
+        poseDesc,
+        previousPoseDesc,
+        styleDesc,
+        frameSize: fw,
+      });
 
       let frameImage: string | null = null;
       let retries = 0;
-      
+
       while (!frameImage && retries < 2) {
         try {
-          const referenceImage = frames[i - 1] || baseImage;
-          // Small delay between requests to avoid rate limiting
+          const referenceImages = i === 1 ? [baseImage] : [baseImage, frames[i - 1]];
           if (i > 0 || retries > 0) {
             await new Promise((r) => setTimeout(r, 1000));
           }
-          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, referenceImage);
+          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, referenceImages);
         } catch (e) {
           if ((e as Error).message === "RATE_LIMITED") {
             console.log("Rate limited, waiting 3s...");
@@ -300,7 +362,6 @@ ${FRAMING_RULES}. Do not create a sprite sheet — output a single frame.`;
         }
       }
 
-      // Fall back to base image if frame generation fails
       frames.push(frameImage || frames[i - 1] || baseImage);
     }
 
