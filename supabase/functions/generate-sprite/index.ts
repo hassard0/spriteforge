@@ -415,9 +415,146 @@ function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, hand
   }
 }
 
+function getDetailTier(size: number) {
+  if (size >= 112) return 3;
+  if (size >= 72) return 2;
+  if (size >= 48) return 1;
+  return 0;
+}
+
+function drawSegmentedLimb(
+  frame: number[],
+  size: number,
+  startX: number,
+  startY: number,
+  midX: number,
+  midY: number,
+  endX: number,
+  endY: number,
+  outlineColor: number,
+  fillColor: number,
+  thickness: number,
+  jointColor: number,
+  extremityW = 0,
+  extremityH = 0,
+) {
+  drawLine(frame, size, startX, startY, midX, midY, outlineColor, thickness + 1);
+  drawLine(frame, size, midX, midY, endX, endY, outlineColor, thickness + 1);
+  drawLine(frame, size, startX, startY, midX, midY, fillColor, thickness);
+  drawLine(frame, size, midX, midY, endX, endY, fillColor, thickness);
+
+  const jointRadius = Math.max(1, Math.floor(thickness / 2));
+  fillEllipse(frame, size, midX, midY, jointRadius + 1, jointRadius + 1, outlineColor);
+  fillEllipse(frame, size, midX, midY, jointRadius, jointRadius, jointColor);
+
+  if (extremityW > 0 && extremityH > 0) {
+    const left = endX - Math.floor(extremityW / 2);
+    const top = endY - Math.floor(extremityH / 2);
+    fillRect(frame, size, left, top, extremityW, extremityH, outlineColor);
+    fillRect(frame, size, left + 1, top + 1, Math.max(1, extremityW - 2), Math.max(1, extremityH - 2), fillColor);
+  }
+}
+
+function drawHumanoidFaceDetails(
+  frame: number[],
+  size: number,
+  recipe: SpriteRecipe,
+  cx: number,
+  headY: number,
+  headSize: number,
+  facing: FacingDirection,
+  roles: ReturnType<typeof paletteRoles>,
+  s: number,
+  detailTier: number,
+) {
+  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye, s);
+
+  if (detailTier < 1) return;
+
+  const dir = facing === "left" ? -1 : 1;
+  const mouthY = headY + headSize + Math.max(1, Math.round(1.5 * s));
+  const mouthHalf = Math.max(1, Math.round(0.9 * s));
+  const noseX = cx + (detailTier >= 2 ? dir : 0);
+  const noseY = headY + headSize + Math.max(1, Math.round(0.5 * s));
+
+  fillRect(frame, size, noseX, noseY, 1, Math.max(1, Math.round(0.8 * s)), roles.shadow);
+
+  if (recipe.expression === "happy" || recipe.expression === "cute") {
+    drawLine(frame, size, cx - mouthHalf, mouthY, cx, mouthY + 1, roles.shadow, 1);
+    drawLine(frame, size, cx, mouthY + 1, cx + mouthHalf, mouthY, roles.shadow, 1);
+  } else if (recipe.expression === "angry") {
+    drawLine(frame, size, cx - mouthHalf, mouthY + 1, cx + mouthHalf, mouthY, roles.shadow, 1);
+  } else {
+    drawLine(frame, size, cx - mouthHalf, mouthY, cx + mouthHalf, mouthY, roles.shadow, 1);
+  }
+
+  if (detailTier >= 2) {
+    const browY = headY + Math.max(1, Math.round(0.8 * s));
+    const browGap = Math.max(1, Math.round(1.4 * s));
+    drawLine(frame, size, cx - browGap - 1, browY, cx - 1, browY + (recipe.expression === "angry" ? -1 : 0), roles.outline, 1);
+    drawLine(frame, size, cx + 1, browY + (recipe.expression === "angry" ? -1 : 0), cx + browGap + 1, browY, roles.outline, 1);
+    fillRect(frame, size, cx - headSize, headY + Math.round(2 * s), 1, Math.max(1, Math.round(2 * s)), roles.secondary);
+    fillRect(frame, size, cx + headSize, headY + Math.round(2 * s), 1, Math.max(1, Math.round(2 * s)), roles.secondary);
+  }
+}
+
+function drawHumanoidCostumeDetails(
+  frame: number[],
+  size: number,
+  recipe: SpriteRecipe,
+  cx: number,
+  torsoY: number,
+  torsoW: number,
+  torsoH: number,
+  ground: number,
+  roles: ReturnType<typeof paletteRoles>,
+  s: number,
+  detailTier: number,
+) {
+  if (detailTier < 1) return;
+
+  const inset = Math.max(1, Math.round(s));
+  const innerX = cx - Math.floor(torsoW / 2) + inset;
+  const innerW = Math.max(1, torsoW - inset * 2);
+  const innerTop = torsoY + inset;
+  const innerH = Math.max(1, torsoH - inset * 2);
+  const beltY = torsoY + Math.max(inset + 1, Math.round(torsoH * 0.58));
+
+  fillRect(frame, size, innerX, beltY, innerW, Math.max(1, Math.round(0.8 * s)), roles.shadow);
+  fillRect(frame, size, cx - Math.max(1, Math.round(0.8 * s)), torsoY + inset, Math.max(1, Math.round(1.6 * s)), innerH, roles.highlight);
+
+  if (recipe.outfitStyle === "armor") {
+    fillRect(frame, size, innerX + Math.max(1, Math.round(s)), torsoY + Math.max(1, Math.round(2 * s)), Math.max(1, innerW - Math.round(2 * s)), Math.max(1, Math.round(1.2 * s)), roles.highlight);
+    drawLine(frame, size, innerX + 1, torsoY + Math.round(2.5 * s), cx, torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
+    drawLine(frame, size, cx, torsoY + torsoH - Math.round(2 * s), innerX + innerW - 1, torsoY + Math.round(2.5 * s), roles.shadow, 1);
+    fillRect(frame, size, innerX - Math.max(1, Math.round(s)), torsoY + Math.round(s), Math.max(1, Math.round(1.5 * s)), Math.max(1, Math.round(2 * s)), roles.outline);
+    fillRect(frame, size, innerX + innerW, torsoY + Math.round(s), Math.max(1, Math.round(1.5 * s)), Math.max(1, Math.round(2 * s)), roles.outline);
+  } else if (recipe.outfitStyle === "robe") {
+    drawLine(frame, size, cx, torsoY + inset, cx, ground - Math.round(3 * s), roles.highlight, 1);
+    drawLine(frame, size, innerX, torsoY + inset, innerX + innerW, torsoY + inset, roles.highlight, 1);
+    drawLine(frame, size, innerX, ground - Math.round(2 * s), innerX + innerW, ground - Math.round(2 * s), roles.shadow, 1);
+  } else if (recipe.outfitStyle === "dress") {
+    drawLine(frame, size, innerX, beltY, innerX + innerW, beltY, roles.highlight, 1);
+    drawLine(frame, size, cx, beltY, cx, ground - Math.round(2 * s), roles.shadow, 1);
+    if (detailTier >= 2) {
+      drawLine(frame, size, cx - Math.round(2 * s), beltY, cx - Math.round(3 * s), ground - Math.round(2 * s), roles.shadow, 1);
+      drawLine(frame, size, cx + Math.round(2 * s), beltY, cx + Math.round(3 * s), ground - Math.round(2 * s), roles.shadow, 1);
+    }
+  } else {
+    fillRect(frame, size, innerX, torsoY + inset, innerW, Math.max(1, Math.round(s)), roles.highlight);
+    drawLine(frame, size, innerX, torsoY + Math.round(2 * s), innerX + innerW, torsoY + Math.round(2 * s), roles.shadow, 1);
+    if (detailTier >= 2) {
+      drawLine(frame, size, innerX + Math.round(2 * s), torsoY + Math.round(2 * s), innerX + Math.round(2 * s), torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
+      drawLine(frame, size, innerX + innerW - Math.round(2 * s), torsoY + Math.round(2 * s), innerX + innerW - Math.round(2 * s), torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
+    }
+  }
+}
+
 function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
   const s = size / 24;
+  const detailTier = getDetailTier(size);
   const roles = paletteRoles(recipe.palette);
+  const dir = facing === "left" ? -1 : 1;
   const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
   const ground = size - Math.round(4 * s) - motion.airborneLift;
   const headSize = Math.round((style === "chibi" ? 4 : 3) * s);
@@ -431,6 +568,10 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
   const leftShoulderX = cx - Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
   const rightShoulderX = cx + Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
   const th = Math.max(1, Math.round(s));
+  const handW = detailTier >= 2 ? Math.max(2, Math.round(1.8 * s)) : 0;
+  const handH = detailTier >= 2 ? Math.max(2, Math.round(1.8 * s)) : 0;
+  const bootW = detailTier >= 1 ? Math.max(2, Math.round(2.2 * s)) : 0;
+  const bootH = detailTier >= 1 ? Math.max(2, Math.round(1.6 * s)) : 0;
 
   if (recipe.features.includes("cape")) fillTriangle(frame, size, [cx, torsoY + Math.round(s)], [cx - Math.round(4 * s), torsoY + Math.round(8 * s)], [cx + Math.round(4 * s), torsoY + Math.round(8 * s)], roles.secondary);
 
@@ -462,7 +603,22 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
     fillTriangle(frame, size, [cx, headY + Math.round(s)], [cx + Math.round(s), headY - Math.round(2 * s)], [cx + Math.round(2 * s), headY + Math.round(s)], roles.accent);
   }
 
-  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye, s);
+  if (detailTier >= 1 && recipe.hairStyle !== "none") {
+    const hairStart = cx - headSize + Math.round(s);
+    const hairEnd = cx + headSize - Math.round(s);
+    drawLine(frame, size, hairStart, headY + hairH, hairEnd, headY + hairH, roles.outline, 1);
+    if (recipe.hairStyle === "long") {
+      drawLine(frame, size, hairStart, headY + Math.round(3 * s), hairStart - Math.round(0.5 * s), torsoY + Math.round(3 * s), roles.outline, 1);
+      drawLine(frame, size, hairEnd, headY + Math.round(3 * s), hairEnd + Math.round(0.5 * s), torsoY + Math.round(3 * s), roles.outline, 1);
+    }
+  }
+
+  if (detailTier >= 2 && recipe.hairStyle === "spiky") {
+    drawLine(frame, size, cx - Math.round(2 * s), headY + Math.round(s), cx - Math.round(s), headY - Math.round(3 * s), roles.outline, 1);
+    drawLine(frame, size, cx + Math.round(2 * s), headY + Math.round(s), cx + Math.round(s), headY - Math.round(3 * s), roles.outline, 1);
+  }
+
+  drawHumanoidFaceDetails(frame, size, recipe, cx, headY, headSize, facing, roles, s, detailTier);
 
   if (recipe.features.includes("helmet")) fillRect(frame, size, cx - headSize, headY, headSize * 2 + Math.round(s), Math.round(2 * s), roles.accent);
   if (recipe.features.includes("hat")) {
@@ -478,11 +634,31 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
     fillTriangle(frame, size, [cx + Math.round(2 * s), torsoY + Math.round(2 * s)], [cx + Math.round(6 * s) + motion.wingSwing, torsoY + Math.round(4 * s)], [cx + Math.round(3 * s), torsoY + Math.round(7 * s)], roles.secondary);
   }
 
+  drawHumanoidCostumeDetails(frame, size, recipe, cx, torsoY, torsoW, torsoH, ground, roles, s, detailTier);
+
   if (recipe.outfitStyle !== "dress") {
-    drawLine(frame, size, cx - hipSpread, torsoY + torsoH - Math.round(s), cx - hipSpread + motion.legSwingA, ground, roles.outline, th + 1);
-    drawLine(frame, size, cx + hipSpread, torsoY + torsoH - Math.round(s), cx + hipSpread + motion.legSwingB, ground, roles.outline, th + 1);
-    drawLine(frame, size, cx - hipSpread, torsoY + torsoH - Math.round(s), cx - hipSpread + motion.legSwingA, ground - Math.round(s), roles.primary, th);
-    drawLine(frame, size, cx + hipSpread, torsoY + torsoH - Math.round(s), cx + hipSpread + motion.legSwingB, ground - Math.round(s), roles.primary, th);
+    const leftHipX = cx - hipSpread;
+    const rightHipX = cx + hipSpread;
+    const hipY = torsoY + torsoH - Math.round(s);
+    const leftFootX = leftHipX + motion.legSwingA;
+    const rightFootX = rightHipX + motion.legSwingB;
+
+    if (detailTier >= 1) {
+      const kneeY = torsoY + torsoH + Math.round(2.5 * s) - Math.round(Math.abs(motion.bob) / 2);
+      const leftKneeX = leftHipX + Math.round(motion.legSwingA * 0.45) - dir;
+      const rightKneeX = rightHipX + Math.round(motion.legSwingB * 0.45) + dir;
+      drawSegmentedLimb(frame, size, leftHipX, hipY, leftKneeX, kneeY, leftFootX, ground - Math.round(s / 2), roles.outline, roles.primary, th, roles.shadow, bootW, bootH);
+      drawSegmentedLimb(frame, size, rightHipX, hipY, rightKneeX, kneeY, rightFootX, ground - Math.round(s / 2), roles.outline, roles.primary, th, roles.shadow, bootW, bootH);
+      if (detailTier >= 2) {
+        fillRect(frame, size, leftKneeX - 1, kneeY - 1, Math.max(2, Math.round(1.2 * s)), Math.max(2, Math.round(1.2 * s)), roles.highlight);
+        fillRect(frame, size, rightKneeX - 1, kneeY - 1, Math.max(2, Math.round(1.2 * s)), Math.max(2, Math.round(1.2 * s)), roles.highlight);
+      }
+    } else {
+      drawLine(frame, size, leftHipX, hipY, leftFootX, ground, roles.outline, th + 1);
+      drawLine(frame, size, rightHipX, hipY, rightFootX, ground, roles.outline, th + 1);
+      drawLine(frame, size, leftHipX, hipY, leftFootX, ground - Math.round(s), roles.primary, th);
+      drawLine(frame, size, rightHipX, hipY, rightFootX, ground - Math.round(s), roles.primary, th);
+    }
   }
 
   const armLen = Math.round(4 * s);
@@ -491,10 +667,27 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
   const rearHandX = mirrorX(leftShoulderX + motion.armSwingB, cx, facing);
   const rearHandY = shoulderY + armLen + Math.round(Math.abs(motion.armSwingB) / 2);
 
-  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, th + 1);
-  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, th + 1);
-  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary, th);
-  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary, th);
+  if (detailTier >= 1) {
+    const elbowLift = Math.max(1, Math.round(1.6 * s));
+    const leadElbowX = Math.round((rightShoulderX + leadHandX) / 2) + dir * Math.max(1, Math.round(0.8 * s));
+    const rearElbowX = Math.round((leftShoulderX + rearHandX) / 2) - dir * Math.max(1, Math.round(0.8 * s));
+    const leadElbowY = Math.round((shoulderY + leadHandY) / 2) - elbowLift;
+    const rearElbowY = Math.round((shoulderY + rearHandY) / 2) - elbowLift;
+
+    drawSegmentedLimb(frame, size, leftShoulderX, shoulderY, rearElbowX, rearElbowY, rearHandX, rearHandY, roles.outline, roles.primary, th, roles.secondary, handW, handH);
+    drawSegmentedLimb(frame, size, rightShoulderX, shoulderY, leadElbowX, leadElbowY, leadHandX, leadHandY, roles.outline, roles.primary, th, roles.secondary, handW, handH);
+
+    if (detailTier >= 2) {
+      fillEllipse(frame, size, leftShoulderX, shoulderY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.highlight);
+      fillEllipse(frame, size, rightShoulderX, shoulderY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.highlight);
+    }
+  } else {
+    drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, th + 1);
+    drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, th + 1);
+    drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary, th);
+    drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary, th);
+  }
+
   drawAccessory(frame, size, recipe, leadHandX, leadHandY, facing, roles, s);
 }
 
