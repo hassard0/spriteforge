@@ -6,6 +6,7 @@ const corsHeaders = {
 };
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MAX_GENERATED_FRAMES = 6;
 
 const WALK_PHASES = [
   "contact pose, left heel forward, right leg pushing back, right arm forward, left arm back",
@@ -48,7 +49,7 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-3.1-flash-image-preview",
+      model: "google/gemini-2.5-flash-image",
       messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
@@ -150,13 +151,17 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const fw = parseInt(resolution);
+    const requestedFrameCount = Math.max(1, Math.round(Number(frameCount) || 1));
+    const totalFrames = Math.min(requestedFrameCount, MAX_GENERATED_FRAMES);
     const styleDesc = style === "pixel-art" ? "pixel art" : style === "chibi" ? "chibi" : "cel-shaded";
     const paletteDesc = palette === "nes" ? "NES color palette" : palette === "snes" ? "SNES palette" : palette === "gameboy" ? "Game Boy 4-shade green" : "vibrant colors";
+    const getPose = POSE_GUIDES[animationType] || POSE_GUIDES.idle;
+    const openingPose = getPose(0, totalFrames);
 
     // STEP 1: Generate base character image
     console.log("Step 1: Generating base character...");
     const basePrompt = `Create a single ${styleDesc} game character sprite: ${prompt}.
-Standing in a neutral pose facing ${facingDirection}. ${fw}x${fw} pixel resolution.
+Pose: ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixel resolution.
 Use ${paletteDesc}. ${FRAMING_RULES}.
 This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
 
@@ -166,7 +171,7 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
     if (!baseImage) {
       console.log("First attempt failed, retrying with simplified prompt...");
       await new Promise((r) => setTimeout(r, 1500));
-      const simplePrompt = `Generate a ${styleDesc} game character sprite: ${prompt}. Neutral standing pose facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
+      const simplePrompt = `Generate a ${styleDesc} game character sprite: ${prompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
       baseImage = await generateImage(LOVABLE_API_KEY, simplePrompt);
     }
 
@@ -176,15 +181,14 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
     console.log("Base character generated successfully");
 
     // STEP 2: Generate each animation frame using image-to-image
-    const frames: string[] = [];
-    const getPose = POSE_GUIDES[animationType] || POSE_GUIDES.idle;
+    const frames: string[] = [baseImage];
 
     // We'll limit concurrent requests to avoid rate limiting
-    for (let i = 0; i < frameCount; i++) {
-      const poseDesc = getPose(i, frameCount);
-      console.log(`Step 2: Generating frame ${i + 1}/${frameCount}: ${poseDesc.slice(0, 60)}`);
+    for (let i = 1; i < totalFrames; i++) {
+      const poseDesc = getPose(i, totalFrames);
+      console.log(`Step 2: Generating frame ${i + 1}/${totalFrames}: ${poseDesc.slice(0, 60)}`);
 
-      const framePrompt = `Edit this exact ${styleDesc} game character sprite into animation frame ${i + 1} of ${frameCount}: ${poseDesc}.
+      const framePrompt = `Edit this exact ${styleDesc} game character sprite into animation frame ${i + 1} of ${totalFrames}: ${poseDesc}.
 Keep the SAME character design, face, outfit, colors, proportions, and ${styleDesc} style.
 Keep the framing locked: ${FRAMING_RULES}. Same ${fw}x${fw} pixel size.
 Only change the body pose slightly from the reference to create smooth frame-by-frame motion.
@@ -195,7 +199,7 @@ Do not redesign the character, do not add new details, and do not create a sprit
       
       while (!frameImage && retries < 2) {
         try {
-          const referenceImage = i === 0 ? baseImage : frames[i - 1];
+          const referenceImage = frames[i - 1] || baseImage;
           // Small delay between requests to avoid rate limiting
           if (i > 0 || retries > 0) {
             await new Promise((r) => setTimeout(r, 1000));
