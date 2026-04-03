@@ -62,12 +62,12 @@ export default function GeneratePage() {
 
     const fw = parseInt(resolution);
 
-    // Progress animation
+    // Progress animation - slower since we're generating multiple frames
     let progressVal = 0;
     const progressInterval = setInterval(() => {
-      progressVal = Math.min(progressVal + 1, 90);
+      progressVal = Math.min(progressVal + 0.5, 90);
       setProgress(progressVal);
-    }, 300);
+    }, 500);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-sprite', {
@@ -85,14 +85,19 @@ export default function GeneratePage() {
       clearInterval(progressInterval);
 
       if (error) {
-        // supabase.functions.invoke returns error for non-2xx, try to get body
         const errorMsg = typeof data === 'object' && data?.error ? data.error : error.message || 'Generation failed';
         throw new Error(errorMsg);
       }
 
-      if (!data?.imageData) {
-        throw new Error('No image data in response. The AI model may have declined your prompt.');
+      if (!data?.frames || !Array.isArray(data.frames) || data.frames.length === 0) {
+        throw new Error('No frames generated. The AI model may have declined your prompt.');
       }
+
+      setProgress(95);
+
+      // Stitch individual frame images into a single sprite sheet
+      const actualFrameCount = data.frames.length;
+      const spriteSheetDataUrl = await stitchFrames(data.frames, fw, fw);
 
       setProgress(100);
 
@@ -104,11 +109,11 @@ export default function GeneratePage() {
         style,
         palette,
         resolution,
-        frameCount,
+        frameCount: actualFrameCount,
         frameWidth: fw,
         frameHeight: fw,
         facingDirection: facing,
-        imageData: data.imageData,
+        imageData: spriteSheetDataUrl,
         createdAt: new Date().toISOString(),
         collectionIds: [],
         tags: [],
