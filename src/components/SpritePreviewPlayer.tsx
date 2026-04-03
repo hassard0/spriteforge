@@ -18,6 +18,7 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
   const imgRef = useRef<HTMLImageElement | null>(null);
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const currentFrameRef = useRef(0);
 
   const [currentFrame, setCurrentFrame] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -25,6 +26,10 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
   const [loop, setLoop] = useState(true);
   const [zoom, setZoom] = useState(4);
   const [showGrid, setShowGrid] = useState(false);
+
+  useEffect(() => {
+    currentFrameRef.current = currentFrame;
+  }, [currentFrame]);
 
   const drawFrame = useCallback((frame: number) => {
     const canvas = canvasRef.current;
@@ -80,6 +85,8 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
+      currentFrameRef.current = 0;
+      setCurrentFrame(0);
       drawFrame(0);
     };
     img.src = imageData;
@@ -93,25 +100,28 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     }
 
     const interval = 1000 / fps;
-    let frame = currentFrame;
+    lastTimeRef.current = 0;
 
     const animate = (time: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = time;
+
       if (time - lastTimeRef.current >= interval) {
         lastTimeRef.current = time;
-        frame = (frame + 1) % frameCount;
-        if (frame === 0 && !loop) {
+        const nextFrame = (currentFrameRef.current + 1) % frameCount;
+        if (nextFrame === 0 && !loop) {
           setPlaying(false);
           return;
         }
-        setCurrentFrame(frame);
-        drawFrame(frame);
+        currentFrameRef.current = nextFrame;
+        setCurrentFrame(nextFrame);
+        drawFrame(nextFrame);
       }
       animRef.current = requestAnimationFrame(animate);
     };
 
     animRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animRef.current);
-  }, [playing, fps, frameCount, loop, drawFrame, currentFrame]);
+  }, [playing, fps, frameCount, loop, drawFrame]);
 
   // Draw when frame changes externally
   useEffect(() => {
@@ -120,7 +130,11 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
 
   const stepFrame = (dir: number) => {
     setPlaying(false);
-    setCurrentFrame(f => ((f + dir) + frameCount) % frameCount);
+    setCurrentFrame((frame) => {
+      const nextFrame = ((frame + dir) + frameCount) % frameCount;
+      currentFrameRef.current = nextFrame;
+      return nextFrame;
+    });
   };
 
   return (
@@ -199,7 +213,7 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
         {Array.from({ length: frameCount }, (_, i) => (
           <button
             key={i}
-            onClick={() => { setPlaying(false); setCurrentFrame(i); }}
+            onClick={() => { setPlaying(false); currentFrameRef.current = i; setCurrentFrame(i); }}
             className={`flex-shrink-0 w-8 h-8 rounded text-[10px] font-bold transition-colors ${
               i === currentFrame
                 ? 'bg-primary text-primary-foreground'

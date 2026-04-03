@@ -7,6 +7,30 @@ const corsHeaders = {
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
+const WALK_PHASES = [
+  "contact pose, left heel forward, right leg pushing back, right arm forward, left arm back",
+  "down pose, weight settling on left leg, torso slightly lowered, arms mid-swing",
+  "passing pose, right knee crossing under body, torso upright, arms passing center",
+  "up pose, body lifted slightly, right knee coming forward, left heel lifting",
+  "contact pose, right heel forward, left leg pushing back, left arm forward, right arm back",
+  "down pose, weight settling on right leg, torso slightly lowered, arms mid-swing",
+  "passing pose, left knee crossing under body, torso upright, arms passing center",
+  "up pose, body lifted slightly, left knee coming forward, right heel lifting",
+];
+
+const RUN_PHASES = [
+  "left foot contact, body leaning forward, right leg stretched behind, right arm driving forward",
+  "compression pose, left leg bent under body, torso lowered, arms pumping",
+  "flight pose, both feet off ground, right knee driving forward, left leg trailing",
+  "high point, torso lifted, right thigh high, left arm forward, right arm back",
+  "right foot contact, body leaning forward, left leg stretched behind, left arm driving forward",
+  "compression pose, right leg bent under body, torso lowered, arms pumping",
+  "flight pose, both feet off ground, left knee driving forward, right leg trailing",
+  "high point, torso lifted, left thigh high, right arm forward, left arm back",
+];
+
+const FRAMING_RULES = "single full-body sprite only, centered in frame, same camera distance, same sprite scale, same ground line, same silhouette proportions, no duplicate character, no extra limbs, no weapon changes, plain flat background";
+
 async function generateImage(apiKey: string, prompt: string, referenceImage?: string): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
   
@@ -65,12 +89,12 @@ const POSE_GUIDES: Record<string, (frame: number, total: number) => string> = {
       : `standing still, slight downward breathing motion, relaxed pose, frame ${f + 1} of ${t}`;
   },
   walk: (f, t) => {
-    const poses = ["left foot forward right arm forward", "feet together arms at sides", "right foot forward left arm forward", "feet together arms at sides"];
-    return `walking cycle, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
+    const phase = WALK_PHASES[Math.floor((f / t) * WALK_PHASES.length) % WALK_PHASES.length];
+    return `walking cycle, ${phase}, frame ${f + 1} of ${t}`;
   },
   run: (f, t) => {
-    const poses = ["left leg extended back right arm forward leaning", "both feet off ground mid-stride", "right leg extended back left arm forward leaning", "landing foot down"];
-    return `running cycle, ${poses[f % poses.length]}, frame ${f + 1} of ${t}`;
+    const phase = RUN_PHASES[Math.floor((f / t) * RUN_PHASES.length) % RUN_PHASES.length];
+    return `running cycle, ${phase}, frame ${f + 1} of ${t}`;
   },
   attack: (f, t) => {
     const poses = ["winding up arm pulled back", "mid-swing arm moving forward", "full extension striking forward", "follow through arm extended", "recovering returning to stance"];
@@ -115,10 +139,10 @@ serve(async (req) => {
 
     // STEP 1: Generate base character image
     console.log("Step 1: Generating base character...");
-    const basePrompt = `Create a single ${styleDesc} game character sprite: ${prompt}. 
-Standing in a neutral pose facing ${facingDirection}. ${fw}x${fw} pixel resolution. 
-Use ${paletteDesc}. Clean solid background. The character should be centered and well-defined.
-This is a game sprite - make it clear, iconic, and suitable for animation.`;
+    const basePrompt = `Create a single ${styleDesc} game character sprite: ${prompt}.
+Standing in a neutral pose facing ${facingDirection}. ${fw}x${fw} pixel resolution.
+Use ${paletteDesc}. ${FRAMING_RULES}.
+This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
 
     const baseImage = await generateImage(LOVABLE_API_KEY, basePrompt);
     if (!baseImage) {
@@ -135,21 +159,23 @@ This is a game sprite - make it clear, iconic, and suitable for animation.`;
       const poseDesc = getPose(i, frameCount);
       console.log(`Step 2: Generating frame ${i + 1}/${frameCount}: ${poseDesc.slice(0, 60)}`);
 
-      const framePrompt = `Edit this ${styleDesc} game character sprite to show: ${poseDesc}.
-Keep the SAME character design, colors, and ${styleDesc} style. Same ${fw}x${fw} pixel size.
-Only change the pose/position for this animation frame. Keep the background the same.
-Maintain consistent proportions and art style with the reference image.`;
+      const framePrompt = `Edit this exact ${styleDesc} game character sprite into animation frame ${i + 1} of ${frameCount}: ${poseDesc}.
+Keep the SAME character design, face, outfit, colors, proportions, and ${styleDesc} style.
+Keep the framing locked: ${FRAMING_RULES}. Same ${fw}x${fw} pixel size.
+Only change the body pose slightly from the reference to create smooth frame-by-frame motion.
+Do not redesign the character, do not add new details, and do not create a sprite sheet.`;
 
       let frameImage: string | null = null;
       let retries = 0;
       
       while (!frameImage && retries < 2) {
         try {
+          const referenceImage = i === 0 ? baseImage : frames[i - 1];
           // Small delay between requests to avoid rate limiting
           if (i > 0 || retries > 0) {
             await new Promise((r) => setTimeout(r, 1000));
           }
-          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, baseImage);
+          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, referenceImage);
         } catch (e) {
           if ((e as Error).message === "RATE_LIMITED") {
             console.log("Rate limited, waiting 3s...");
@@ -162,7 +188,7 @@ Maintain consistent proportions and art style with the reference image.`;
       }
 
       // Fall back to base image if frame generation fails
-      frames.push(frameImage || baseImage);
+      frames.push(frameImage || frames[i - 1] || baseImage);
     }
 
     console.log(`Generated ${frames.length} frames successfully`);
