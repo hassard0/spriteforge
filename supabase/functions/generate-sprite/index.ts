@@ -75,10 +75,35 @@ Make it look like a professional retro game sprite sheet. Each frame should show
     }
 
     const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    console.log("AI response keys:", JSON.stringify(Object.keys(data)));
+    console.log("Choices count:", data.choices?.length);
+    
+    const message = data.choices?.[0]?.message;
+    console.log("Message keys:", message ? JSON.stringify(Object.keys(message)) : "no message");
+    
+    // Try multiple possible image locations in the response
+    let imageUrl = message?.images?.[0]?.image_url?.url;
+    
+    // Some models return inline image content differently
+    if (!imageUrl && message?.content) {
+      // Check if content itself contains a data URI
+      const match = typeof message.content === 'string' 
+        ? message.content.match(/(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)/)
+        : null;
+      if (match) {
+        imageUrl = match[1];
+      }
+    }
+    
+    // Check for image in multimodal content array
+    if (!imageUrl && Array.isArray(message?.content)) {
+      const imgPart = message.content.find((p: any) => p.type === 'image_url' || p.type === 'image');
+      imageUrl = imgPart?.image_url?.url || imgPart?.url;
+    }
 
     if (!imageUrl) {
-      throw new Error("No image returned from AI model");
+      console.error("Full AI response:", JSON.stringify(data).slice(0, 2000));
+      throw new Error("No image returned from AI model. The model may have declined the request.");
     }
 
     return new Response(

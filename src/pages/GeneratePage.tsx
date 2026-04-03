@@ -85,11 +85,13 @@ export default function GeneratePage() {
       clearInterval(progressInterval);
 
       if (error) {
-        throw new Error(error.message || 'Generation failed');
+        // supabase.functions.invoke returns error for non-2xx, try to get body
+        const errorMsg = typeof data === 'object' && data?.error ? data.error : error.message || 'Generation failed';
+        throw new Error(errorMsg);
       }
 
       if (!data?.imageData) {
-        throw new Error('No image returned');
+        throw new Error('No image data in response. The AI model may have declined your prompt.');
       }
 
       setProgress(100);
