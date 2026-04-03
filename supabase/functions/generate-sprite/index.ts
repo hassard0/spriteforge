@@ -7,6 +7,7 @@ const corsHeaders = {
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_GENERATED_FRAMES = 6;
+const TEXT_MODEL = "google/gemini-3-flash-preview";
 
 const WALK_PHASES = [
   "contact pose, left heel forward, right leg pushing back, right arm forward, left arm back",
@@ -31,6 +32,66 @@ const RUN_PHASES = [
 ];
 
 const FRAMING_RULES = "single full-body sprite only, centered in frame, same camera distance, same sprite scale, same ground line, same silhouette proportions, no duplicate character, no extra limbs, no weapon changes, plain flat background";
+
+function extractTextContent(message: any): string | null {
+  if (!message?.content) return null;
+  if (typeof message.content === "string") return message.content.trim() || null;
+  if (Array.isArray(message.content)) {
+    const text = message.content
+      .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
+      .map((part: any) => part.text.trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return text || null;
+  }
+
+  return null;
+}
+
+async function simplifySpritePrompt(apiKey: string, prompt: string, animationType: string, facingDirection: string): Promise<string | null> {
+  const response = await fetch(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: TEXT_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: "You rewrite game sprite requests into safe, concise, production-ready image prompts. Keep the core subject, body type, motion, and major visual traits when possible. Remove nudity, sexual content, and overly complex wording. If clothing is missing, add simple practical clothing. Return exactly one short sentence and nothing else.",
+        },
+        {
+          role: "user",
+          content: `Rewrite this sprite request into a safe, concise game-character description for image generation. Preserve the subject and action where possible. Animation type: ${animationType}. Facing: ${facingDirection}. Original request: ${prompt}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    console.error(`Prompt rewrite API error ${response.status}:`, txt.slice(0, 500));
+    if (response.status === 429) throw new Error("RATE_LIMITED");
+    if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
+    return null;
+  }
+
+  const data = await response.json();
+  const rewrittenPrompt = extractTextContent(data.choices?.[0]?.message)
+    ?.replace(/^['"\s]+|['"\s]+$/g, "")
+    .slice(0, 220);
+
+  console.log("Prompt rewrite:", JSON.stringify({
+    originalPreview: prompt.slice(0, 120),
+    rewrittenPreview: rewrittenPrompt ?? null,
+  }));
+
+  return rewrittenPrompt && rewrittenPrompt !== prompt ? rewrittenPrompt : null;
+}
 
 async function generateImage(apiKey: string, prompt: string, referenceImage?: string): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
@@ -94,10 +155,6 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
   if (!url && Array.isArray(message?.content)) {
     const img = message.content.find((p: any) => p.type === "image_url" || p.type === "image");
     url = img?.image_url?.url || img?.url;
-  }
-
-  if (!url && refusal) {
-    throw new Error("PROMPT_REJECTED");
   }
 
   return url || null;
@@ -164,22 +221,38 @@ serve(async (req) => {
     const paletteDesc = palette === "nes" ? "NES color palette" : palette === "snes" ? "SNES palette" : palette === "gameboy" ? "Game Boy 4-shade green" : "vibrant colors";
     const getPose = POSE_GUIDES[animationType] || POSE_GUIDES.idle;
     const openingPose = getPose(0, totalFrames);
-
-    // STEP 1: Generate base character image
-    console.log("Step 1: Generating base character...");
-    const basePrompt = `Create a single ${styleDesc} game character sprite: ${prompt}.
+    const buildBasePrompt = (characterPrompt: string) => `Create a single ${styleDesc} game character sprite: ${characterPrompt}.
 Pose: ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixel resolution.
 Use ${paletteDesc}. ${FRAMING_RULES}.
 This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
+    const buildSimplePrompt = (characterPrompt: string) => `Generate a ${styleDesc} game character sprite: ${characterPrompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
 
-    let baseImage = await generateImage(LOVABLE_API_KEY, basePrompt);
+    // STEP 1: Generate base character image
+    console.log("Step 1: Generating base character...");
+    let characterPrompt = prompt.trim();
+
+    let baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt));
 
     // Retry once with a simpler prompt if the first attempt failed
     if (!baseImage) {
       console.log("First attempt failed, retrying with simplified prompt...");
       await new Promise((r) => setTimeout(r, 1500));
-      const simplePrompt = `Generate a ${styleDesc} game character sprite: ${prompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
-      baseImage = await generateImage(LOVABLE_API_KEY, simplePrompt);
+      baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt));
+    }
+
+    if (!baseImage) {
+      const rewrittenPrompt = await simplifySpritePrompt(LOVABLE_API_KEY, characterPrompt, animationType, facingDirection);
+
+      if (rewrittenPrompt) {
+        characterPrompt = rewrittenPrompt;
+        console.log("Retrying base generation with rewritten prompt...");
+        baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt));
+
+        if (!baseImage) {
+          await new Promise((r) => setTimeout(r, 1500));
+          baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt));
+        }
+      }
     }
 
     if (!baseImage) {
@@ -196,6 +269,7 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
       console.log(`Step 2: Generating frame ${i + 1}/${totalFrames}: ${poseDesc.slice(0, 60)}`);
 
       const framePrompt = `Edit this exact ${styleDesc} game character sprite into animation frame ${i + 1} of ${totalFrames}: ${poseDesc}.
+This character is: ${characterPrompt}.
 Keep the SAME character design, face, outfit, colors, proportions, and ${styleDesc} style.
 Keep the framing locked: ${FRAMING_RULES}. Same ${fw}x${fw} pixel size.
 Only change the body pose slightly from the reference to create smooth frame-by-frame motion.
@@ -245,7 +319,7 @@ Do not redesign the character, do not add new details, and do not create a sprit
     let status = 500;
     if (msg === "RATE_LIMITED") status = 429;
     if (msg === "CREDITS_EXHAUSTED") status = 402;
-    if (msg === "PROMPT_REJECTED" || msg === "NO_IMAGE_RETURNED") status = 400;
+    if (msg === "NO_IMAGE_RETURNED") status = 400;
 
     return new Response(
       JSON.stringify({
@@ -253,10 +327,8 @@ Do not redesign the character, do not add new details, and do not create a sprit
           ? "Rate limited. Please try again in a moment."
           : msg === "CREDITS_EXHAUSTED"
           ? "AI credits exhausted. Add funds in Settings > Workspace > Usage."
-          : msg === "PROMPT_REJECTED"
-          ? "That prompt was blocked by the image model. Try a simpler, non-explicit character description."
           : msg === "NO_IMAGE_RETURNED"
-          ? "The image model could not create this sprite. Try a simpler, non-explicit description."
+          ? "The image model could not create this sprite, even after simplifying the prompt. Try a shorter character description with 1-2 key visual traits."
           : msg,
       }),
       { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
