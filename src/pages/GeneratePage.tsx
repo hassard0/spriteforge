@@ -59,55 +59,67 @@ export default function GeneratePage() {
     setProgress(0);
     setResult(null);
 
-    // Simulate generation progress
-    for (let i = 0; i <= 100; i += 5) {
-      await new Promise(r => setTimeout(r, 80));
-      setProgress(i);
-    }
-
-    // Create mock sprite via canvas
     const fw = parseInt(resolution);
-    const canvas = document.createElement('canvas');
-    canvas.width = fw * frameCount;
-    canvas.height = fw;
-    const ctx = canvas.getContext('2d')!;
-    const hue = Math.floor(Math.random() * 360);
+    const paletteDesc = palette === 'nes' ? 'NES 54-color palette' : palette === 'snes' ? 'SNES 256-color palette' : palette === 'gameboy' ? 'Game Boy 4-shade green palette' : 'vibrant custom palette';
+    const styleDesc = style === 'pixel-art' ? 'pixel art' : style === 'chibi' ? 'chibi style' : 'cel-shaded';
 
-    for (let f = 0; f < frameCount; f++) {
-      const ox = f * fw;
-      const px = Math.floor(fw / 8);
-      const phase = f / frameCount;
-      const bounce = Math.sin(phase * Math.PI * 2) * px;
+    const aiPrompt = `Create a ${styleDesc} sprite sheet for a game character: ${prompt}. 
+The sprite sheet should show a "${animType}" animation with exactly ${frameCount} frames arranged in a single horizontal row.
+Each frame is ${fw}x${fw} pixels. The total image should be ${fw * frameCount}x${fw} pixels.
+Use a ${paletteDesc}. The character should face ${facing}.
+The background of each frame should be transparent or a single solid dark color.
+Make it look like a professional retro game sprite sheet. Each frame should show a slightly different pose for the ${animType} animation cycle.`;
 
-      ctx.fillStyle = `hsl(${hue}, 10%, 12%)`;
-      ctx.fillRect(ox, 0, fw, fw);
-      ctx.fillStyle = `hsl(${hue}, 70%, 50%)`;
-      for (let y = 2; y < 5; y++) {
-        for (let x = 3; x < 5; x++) {
-          ctx.fillRect(ox + x * px, y * px + bounce, px, px);
-        }
+    try {
+      // Start progress animation
+      let progressVal = 0;
+      const progressInterval = setInterval(() => {
+        progressVal = Math.min(progressVal + 2, 90);
+        setProgress(progressVal);
+      }, 200);
+
+      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash-image',
+          messages: [{ role: 'user', content: aiPrompt }],
+          modalities: ['image', 'text'],
+        }),
+      });
+
+      clearInterval(progressInterval);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
       }
-      ctx.fillStyle = `hsl(${hue}, 60%, 65%)`;
-      ctx.fillRect(ox + 3 * px, px + bounce, 2 * px, px);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(ox + 3 * px + 1, px + bounce + 1, 2, 2);
-      ctx.fillRect(ox + 4 * px + 1, px + bounce + 1, 2, 2);
-    }
 
-    const sprite: SpriteSheet = {
-      id: `gen-${Date.now()}`,
-      name: prompt.slice(0, 30),
-      prompt,
-      animationType: animType,
-      style,
-      palette,
-      resolution,
-      frameCount,
-      frameWidth: fw,
-      frameHeight: fw,
-      facingDirection: facing,
-      imageData: canvas.toDataURL('image/png'),
-      createdAt: new Date().toISOString(),
+      const data = await response.json();
+      const generatedImageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+      if (!generatedImageUrl) {
+        throw new Error('No image returned from API');
+      }
+
+      setProgress(100);
+
+      const sprite: SpriteSheet = {
+        id: `gen-${Date.now()}`,
+        name: prompt.slice(0, 30),
+        prompt,
+        animationType: animType,
+        style,
+        palette,
+        resolution,
+        frameCount,
+        frameWidth: fw,
+        frameHeight: fw,
+        facingDirection: facing,
+        imageData: generatedImageUrl,
+        createdAt: new Date().toISOString(),
       collectionIds: [],
       tags: [],
     };
