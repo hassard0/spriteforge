@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { useSprites } from '@/hooks/use-sprites';
 import { supabase } from '@/integrations/supabase/client';
-import { stitchFrames } from '@/lib/sprite-sheet';
+import { renderPixelSpriteSheet } from '@/lib/sprite-sheet';
 import { Sparkles, Loader2, Download, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import type { AnimationType, SpriteStyle, PaletteType, Resolution, FacingDirection, SpriteSheet } from '@/types/sprite';
@@ -90,17 +90,22 @@ export default function GeneratePage() {
         throw new Error(errorMsg);
       }
 
-      if (!Array.isArray(data?.frames) || data.frames.length === 0) {
+      if (data?.type !== 'pixel-data' || !Array.isArray(data?.frames) || data.frames.length === 0) {
         throw new Error('No animation frames generated. The AI model may have declined your prompt.');
       }
 
       setProgress(95);
 
-      const actualFrameCount = Number(data.frameCount) || frameCount;
+      const actualFrameCount = data.frames.length;
       const frameWidth = Number(data.frameWidth) || fw;
       const frameHeight = Number(data.frameHeight) || fw;
 
-      const spriteSheetDataUrl = await stitchFrames(data.frames, frameWidth, frameHeight);
+      const spriteSheetDataUrl = renderPixelSpriteSheet({
+        palette: data.palette,
+        frames: data.frames,
+        frameWidth,
+        frameHeight,
+      });
 
       setProgress(100);
 
