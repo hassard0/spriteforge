@@ -375,38 +375,43 @@ function getMotionState(animationType: AnimationType, frameIndex: number, frameC
   return { bob: 0, airborneLift: 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(-1 * s), armSwingB: Math.round(1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
 }
 
-function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number) {
+function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number, s: number) {
+  const gap = Math.max(1, Math.round(1 * s));
   if (recipe.expression === "cute") {
-    setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
-    setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+    fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
+    fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
     return;
   }
   if (recipe.expression === "angry") {
-    drawLine(frame, size, mirrorX(cx - 2, cx, facing), y, mirrorX(cx - 1, cx, facing), y - 1, color);
-    drawLine(frame, size, mirrorX(cx + 2, cx, facing), y - 1, mirrorX(cx + 1, cx, facing), y, color);
+    const bw = Math.max(1, Math.round(s * 0.8));
+    drawLine(frame, size, mirrorX(cx - gap * 2, cx, facing), y, mirrorX(cx - gap, cx, facing), y - Math.round(s), color, bw);
+    drawLine(frame, size, mirrorX(cx + gap * 2, cx, facing), y - Math.round(s), mirrorX(cx + gap, cx, facing), y, color, bw);
     return;
   }
-  setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
-  setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+  fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
+  fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
 }
 
-function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>) {
+function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>, s: number) {
   if (recipe.accessory === "none") return;
   const dir = facing === "left" ? -1 : 1;
+  const th = Math.max(1, Math.round(s));
   if (recipe.accessory === "sword") {
-    drawLine(frame, size, handX, handY, handX + (4 * dir), handY - 4, roles.outline);
-    drawLine(frame, size, handX, handY, handX + (3 * dir), handY - 3, roles.highlight);
-    setPixel(frame, size, handX + dir, handY, roles.accent);
+    drawLine(frame, size, handX, handY, handX + Math.round(4 * s * dir), handY - Math.round(4 * s), roles.outline, th);
+    drawLine(frame, size, handX, handY, handX + Math.round(3 * s * dir), handY - Math.round(3 * s), roles.highlight, Math.max(1, th - 1));
+    fillRect(frame, size, handX + Math.round(dir * s * 0.5), handY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
     return;
   }
   if (recipe.accessory === "staff") {
-    drawLine(frame, size, handX, handY + 1, handX + (1 * dir), handY - 5, roles.outline);
-    setPixel(frame, size, handX + (1 * dir), handY - 5, roles.accent);
+    drawLine(frame, size, handX, handY + Math.round(s), handX + Math.round(1 * s * dir), handY - Math.round(5 * s), roles.outline, th);
+    fillEllipse(frame, size, handX + Math.round(1 * s * dir), handY - Math.round(5 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
     return;
   }
   if (recipe.accessory === "shield") {
-    fillRect(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, 3, 4, roles.secondary);
-    drawLine(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, handX + 1 - (dir === -1 ? 3 : 0), handY - 2, roles.outline);
+    const sw = Math.round(3 * s);
+    const sh = Math.round(4 * s);
+    fillRect(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), sw, sh, roles.secondary);
+    drawLine(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), handX + Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), roles.outline, th);
   }
 }
 
