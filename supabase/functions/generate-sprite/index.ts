@@ -715,8 +715,6 @@ serve(async (req) => {
     fillTriangle(frame, size, [cx + 2, torsoY + 2], [cx + 6 + motion.wingSwing, torsoY + 4], [cx + 3, torsoY + 7], roles.secondary);
   }
 
-  if (recipe.outfitStyle !== "dress") {
-    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
     drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
     drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
     drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
