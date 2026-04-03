@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { useSprites } from '@/hooks/use-sprites';
 import { supabase } from '@/integrations/supabase/client';
-import { stitchFrames } from '@/lib/sprite-sheet';
+import { renderPixelSpriteSheet } from '@/lib/sprite-sheet';
 import { Sparkles, Loader2, Download, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import type { AnimationType, SpriteStyle, PaletteType, Resolution, FacingDirection, SpriteSheet } from '@/types/sprite';
