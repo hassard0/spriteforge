@@ -56,9 +56,10 @@ function normalizeFrameCount(frameCount: number): 4 | 6 {
 
 function getLogicalSize(requestedSize: number): number {
   if (requestedSize <= 16) return 16;
-  if (requestedSize <= 32) return 24;
-  if (requestedSize <= 64) return 24;
-  return 32;
+  if (requestedSize <= 32) return 32;
+  if (requestedSize <= 48) return 48;
+  if (requestedSize <= 64) return 64;
+  return Math.min(requestedSize, 128);
 }
 
 function dedupePalette(colors: string[]) {
@@ -318,19 +319,19 @@ function paletteRoles(palette: string[]) {
   };
 }
 
-function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number): MotionState {
+function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number, s: number): MotionState {
   const phase = (frameIndex / frameCount) * Math.PI * 2;
   const wave = Math.sin(phase);
   const wave2 = Math.sin(phase + Math.PI);
 
   if (animationType === "idle") {
-    return { bob: Math.round(wave * 0.5), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5), tailSwing: Math.round(wave * 1.5), wingSwing: Math.round(wave * 1.5), squash: 0, stretch: 0, collapse: 0 };
+    return { bob: Math.round(wave * 0.5 * s), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5 * s), tailSwing: Math.round(wave * 1.5 * s), wingSwing: Math.round(wave * 1.5 * s), squash: 0, stretch: 0, collapse: 0 };
   }
   if (animationType === "walk") {
-    return { bob: Math.round(Math.abs(wave) * 1), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2), armSwingB: Math.round(wave2 * 2), legSwingA: Math.round(wave * 2), legSwingB: Math.round(wave2 * 2), headOffset: 0, tailSwing: Math.round(wave * 2), wingSwing: Math.round(wave * 2), squash: 0, stretch: 0, collapse: 0 };
+    return { bob: Math.round(Math.abs(wave) * 1 * s), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2 * s), armSwingB: Math.round(wave2 * 2 * s), legSwingA: Math.round(wave * 2 * s), legSwingB: Math.round(wave2 * 2 * s), headOffset: 0, tailSwing: Math.round(wave * 2 * s), wingSwing: Math.round(wave * 2 * s), squash: 0, stretch: 0, collapse: 0 };
   }
   if (animationType === "run") {
-    return { bob: Math.round(Math.abs(wave) * 2), airborneLift: wave > 0.2 ? 2 : 0, torsoTilt: 1, armSwingA: Math.round(wave * 3), armSwingB: Math.round(wave2 * 3), legSwingA: Math.round(wave * 3), legSwingB: Math.round(wave2 * 3), headOffset: 0, tailSwing: Math.round(wave * 3), wingSwing: Math.round(wave * 3), squash: 0, stretch: 1, collapse: 0 };
+    return { bob: Math.round(Math.abs(wave) * 2 * s), airborneLift: wave > 0.2 ? Math.round(2 * s) : 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(wave * 3 * s), armSwingB: Math.round(wave2 * 3 * s), legSwingA: Math.round(wave * 3 * s), legSwingB: Math.round(wave2 * 3 * s), headOffset: 0, tailSwing: Math.round(wave * 3 * s), wingSwing: Math.round(wave * 3 * s), squash: 0, stretch: Math.round(1 * s), collapse: 0 };
   }
   if (animationType === "jump") {
     const presets = frameCount === 4
@@ -349,7 +350,7 @@ function getMotionState(animationType: AnimationType, frameIndex: number, frameC
           { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
         ];
     const preset = presets[frameIndex] ?? presets[0];
-    return { bob: preset.bob, airborneLift: preset.airborneLift, torsoTilt: 0, armSwingA: 1, armSwingB: -1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 1, wingSwing: 3, squash: preset.squash, stretch: preset.stretch, collapse: 0 };
+    return { bob: Math.round(preset.bob * s), airborneLift: Math.round(preset.airborneLift * s), torsoTilt: 0, armSwingA: Math.round(1 * s), armSwingB: Math.round(-1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(3 * s), squash: Math.round(preset.squash * s), stretch: Math.round(preset.stretch * s), collapse: 0 };
   }
   if (animationType === "attack") {
     const presets = frameCount === 4
@@ -368,269 +369,256 @@ function getMotionState(animationType: AnimationType, frameIndex: number, frameC
           { torsoTilt: 0, armSwingA: 0, armSwingB: 0 },
         ];
     const preset = presets[frameIndex] ?? presets[0];
-    return { bob: 0, airborneLift: 0, torsoTilt: preset.torsoTilt, armSwingA: preset.armSwingA, armSwingB: preset.armSwingB, legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: 1, wingSwing: 1, squash: 0, stretch: 0, collapse: 0 };
+    return { bob: 0, airborneLift: 0, torsoTilt: Math.round(preset.torsoTilt * s), armSwingA: Math.round(preset.armSwingA * s), armSwingB: Math.round(preset.armSwingB * s), legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(1 * s), squash: 0, stretch: 0, collapse: 0 };
   }
-  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8);
-  return { bob: 0, airborneLift: 0, torsoTilt: 1, armSwingA: -1, armSwingB: 1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
+  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8 * s);
+  return { bob: 0, airborneLift: 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(-1 * s), armSwingB: Math.round(1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
 }
 
-function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number) {
+function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number, s: number) {
+  const gap = Math.max(1, Math.round(1 * s));
   if (recipe.expression === "cute") {
-    setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
-    setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+    fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
+    fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
     return;
   }
   if (recipe.expression === "angry") {
-    drawLine(frame, size, mirrorX(cx - 2, cx, facing), y, mirrorX(cx - 1, cx, facing), y - 1, color);
-    drawLine(frame, size, mirrorX(cx + 2, cx, facing), y - 1, mirrorX(cx + 1, cx, facing), y, color);
+    const bw = Math.max(1, Math.round(s * 0.8));
+    drawLine(frame, size, mirrorX(cx - gap * 2, cx, facing), y, mirrorX(cx - gap, cx, facing), y - Math.round(s), color, bw);
+    drawLine(frame, size, mirrorX(cx + gap * 2, cx, facing), y - Math.round(s), mirrorX(cx + gap, cx, facing), y, color, bw);
     return;
   }
-  setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
-  setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+  fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
+  fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
 }
 
-function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>) {
+function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>, s: number) {
   if (recipe.accessory === "none") return;
   const dir = facing === "left" ? -1 : 1;
+  const th = Math.max(1, Math.round(s));
   if (recipe.accessory === "sword") {
-    drawLine(frame, size, handX, handY, handX + (4 * dir), handY - 4, roles.outline);
-    drawLine(frame, size, handX, handY, handX + (3 * dir), handY - 3, roles.highlight);
-    setPixel(frame, size, handX + dir, handY, roles.accent);
+    drawLine(frame, size, handX, handY, handX + Math.round(4 * s * dir), handY - Math.round(4 * s), roles.outline, th);
+    drawLine(frame, size, handX, handY, handX + Math.round(3 * s * dir), handY - Math.round(3 * s), roles.highlight, Math.max(1, th - 1));
+    fillRect(frame, size, handX + Math.round(dir * s * 0.5), handY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
     return;
   }
   if (recipe.accessory === "staff") {
-    drawLine(frame, size, handX, handY + 1, handX + (1 * dir), handY - 5, roles.outline);
-    setPixel(frame, size, handX + (1 * dir), handY - 5, roles.accent);
+    drawLine(frame, size, handX, handY + Math.round(s), handX + Math.round(1 * s * dir), handY - Math.round(5 * s), roles.outline, th);
+    fillEllipse(frame, size, handX + Math.round(1 * s * dir), handY - Math.round(5 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
     return;
   }
   if (recipe.accessory === "shield") {
-    fillRect(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, 3, 4, roles.secondary);
-    drawLine(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, handX + 1 - (dir === -1 ? 3 : 0), handY - 2, roles.outline);
+    const sw = Math.round(3 * s);
+    const sh = Math.round(4 * s);
+    fillRect(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), sw, sh, roles.secondary);
+    drawLine(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), handX + Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), roles.outline, th);
   }
 }
 
 function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
-  const ground = size - 4 - motion.airborneLift;
-  const headSize = style === "chibi" ? 4 : 3;
-  const bodyWidthOffset = recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0;
-  const torsoW = Math.max(4, (style === "chibi" ? 6 : 5) + bodyWidthOffset + (recipe.outfitStyle === "armor" ? 1 : 0));
-  const torsoH = style === "chibi" ? 6 : 7;
-  const torsoY = ground - 11 + motion.bob + motion.collapse;
-  const headY = torsoY - headSize - 2 + motion.headOffset + motion.collapse;
-  const leftHipX = cx - 1 - Math.max(0, Math.floor(bodyWidthOffset / 2));
-  const rightHipX = cx + 1 + Math.max(0, Math.floor(bodyWidthOffset / 2));
-  const shoulderY = torsoY + 1;
-  const leftShoulderX = cx - Math.max(2, Math.floor(torsoW / 2));
-  const rightShoulderX = cx + Math.max(2, Math.floor(torsoW / 2));
+  const ground = size - Math.round(4 * s) - motion.airborneLift;
+  const headSize = Math.round((style === "chibi" ? 4 : 3) * s);
+  const bodyWidthOffset = Math.round((recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0) * s);
+  const torsoW = Math.max(Math.round(4 * s), Math.round((style === "chibi" ? 6 : 5) * s) + bodyWidthOffset);
+  const torsoH = Math.round((style === "chibi" ? 6 : 7) * s);
+  const torsoY = ground - Math.round(11 * s) + motion.bob + motion.collapse;
+  const headY = torsoY - headSize - Math.round(2 * s) + motion.headOffset + motion.collapse;
+  const hipSpread = Math.round(1 * s) + Math.max(0, Math.floor(bodyWidthOffset / 2));
+  const shoulderY = torsoY + Math.round(s);
+  const leftShoulderX = cx - Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
+  const rightShoulderX = cx + Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
+  const th = Math.max(1, Math.round(s));
 
-  if (recipe.features.includes("cape")) {
-    fillTriangle(frame, size, [cx, torsoY + 1], [cx - 4, torsoY + 8], [cx + 4, torsoY + 8], roles.secondary);
-  }
+  if (recipe.features.includes("cape")) fillTriangle(frame, size, [cx, torsoY + Math.round(s)], [cx - Math.round(4 * s), torsoY + Math.round(8 * s)], [cx + Math.round(4 * s), torsoY + Math.round(8 * s)], roles.secondary);
 
   if (recipe.outfitStyle === "dress") {
-    fillTriangle(frame, size, [cx, torsoY + 2], [cx - Math.max(4, Math.floor(torsoW / 2) + 1), ground], [cx + Math.max(4, Math.floor(torsoW / 2) + 1), ground], roles.outline);
-    fillTriangle(frame, size, [cx, torsoY + 3], [cx - Math.max(3, Math.floor(torsoW / 2)), ground - 1], [cx + Math.max(3, Math.floor(torsoW / 2)), ground - 1], roles.primary);
+    const ds = Math.max(Math.round(4 * s), Math.floor(torsoW / 2) + Math.round(s));
+    fillTriangle(frame, size, [cx, torsoY + Math.round(2 * s)], [cx - ds, ground], [cx + ds, ground], roles.outline);
+    fillTriangle(frame, size, [cx, torsoY + Math.round(3 * s)], [cx - ds + Math.round(s), ground - Math.round(s)], [cx + ds - Math.round(s), ground - Math.round(s)], roles.primary);
   } else if (recipe.outfitStyle === "robe") {
-    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH + 1 - motion.squash + motion.stretch, roles.outline);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 1 - motion.squash + motion.stretch), roles.primary);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + torsoH - 1, torsoW - 2, 1, roles.shadow);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH + Math.round(s), roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.round(s), torsoW - Math.round(2 * s), Math.max(1, torsoH - Math.round(s)), roles.primary);
   } else {
-    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH, roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.round(s), torsoW - Math.round(2 * s), Math.max(1, torsoH - Math.round(2 * s)), roles.primary);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.max(Math.round(s), torsoH - Math.round(3 * s)), torsoW - Math.round(2 * s), Math.round(s), roles.shadow);
   }
 
-  fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, headSize * 2 + 1, roles.outline);
-  fillRect(frame, size, cx - headSize + 1, headY + 1, Math.max(1, headSize * 2 - 1), Math.max(1, headSize * 2 - 1), roles.secondary);
+  fillRect(frame, size, cx - headSize, headY, headSize * 2 + Math.round(s), headSize * 2 + Math.round(s), roles.outline);
+  fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), Math.max(1, headSize * 2 - Math.round(s)), Math.max(1, headSize * 2 - Math.round(s)), roles.secondary);
 
-  if (recipe.hairStyle === "short") {
-    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
-  }
+  const hairH = Math.max(1, Math.round(2 * s));
+  if (recipe.hairStyle === "short") fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), headSize * 2 - Math.round(s), hairH, roles.accent);
   if (recipe.hairStyle === "long") {
-    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
-    fillRect(frame, size, cx - headSize, headY + 3, 2, headSize + 1, roles.accent);
-    fillRect(frame, size, cx + headSize - 1, headY + 3, 2, headSize + 1, roles.accent);
+    fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), headSize * 2 - Math.round(s), hairH, roles.accent);
+    fillRect(frame, size, cx - headSize, headY + Math.round(3 * s), Math.round(2 * s), headSize + Math.round(s), roles.accent);
+    fillRect(frame, size, cx + headSize - Math.round(s), headY + Math.round(3 * s), Math.round(2 * s), headSize + Math.round(s), roles.accent);
   }
   if (recipe.hairStyle === "spiky") {
-    fillTriangle(frame, size, [cx - 2, headY + 1], [cx - 1, headY - 2], [cx, headY + 1], roles.accent);
-    fillTriangle(frame, size, [cx, headY + 1], [cx + 1, headY - 2], [cx + 2, headY + 1], roles.accent);
+    fillTriangle(frame, size, [cx - Math.round(2 * s), headY + Math.round(s)], [cx - Math.round(s), headY - Math.round(2 * s)], [cx, headY + Math.round(s)], roles.accent);
+    fillTriangle(frame, size, [cx, headY + Math.round(s)], [cx + Math.round(s), headY - Math.round(2 * s)], [cx + Math.round(2 * s), headY + Math.round(s)], roles.accent);
   }
 
-  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye);
+  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye, s);
 
-  if (recipe.genderPresentation === "feminine") {
-    setPixel(frame, size, cx, headY + headSize + 2, roles.highlight);
-  }
-
-  if (recipe.features.includes("helmet")) {
-    fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, 2, roles.accent);
-  }
+  if (recipe.features.includes("helmet")) fillRect(frame, size, cx - headSize, headY, headSize * 2 + Math.round(s), Math.round(2 * s), roles.accent);
   if (recipe.features.includes("hat")) {
-    fillRect(frame, size, cx - headSize - 1, headY - 1, headSize * 2 + 3, 1, roles.accent);
-    fillRect(frame, size, cx - 1, headY - 3, 3, 2, roles.accent);
+    fillRect(frame, size, cx - headSize - Math.round(s), headY - Math.round(s), headSize * 2 + Math.round(3 * s), Math.round(s), roles.accent);
+    fillRect(frame, size, cx - Math.round(s), headY - Math.round(3 * s), Math.round(3 * s), Math.round(2 * s), roles.accent);
   }
   if (recipe.features.includes("horns")) {
-    fillTriangle(frame, size, [cx - 2, headY], [cx - 3, headY - 2], [cx - 1, headY], roles.accent);
-    fillTriangle(frame, size, [cx + 2, headY], [cx + 3, headY - 2], [cx + 1, headY], roles.accent);
+    fillTriangle(frame, size, [cx - Math.round(2 * s), headY], [cx - Math.round(3 * s), headY - Math.round(2 * s)], [cx - Math.round(s), headY], roles.accent);
+    fillTriangle(frame, size, [cx + Math.round(2 * s), headY], [cx + Math.round(3 * s), headY - Math.round(2 * s)], [cx + Math.round(s), headY], roles.accent);
   }
   if (recipe.features.includes("wings")) {
-    fillTriangle(frame, size, [cx - 2, torsoY + 2], [cx - 6 - motion.wingSwing, torsoY + 4], [cx - 3, torsoY + 7], roles.secondary);
-    fillTriangle(frame, size, [cx + 2, torsoY + 2], [cx + 6 + motion.wingSwing, torsoY + 4], [cx + 3, torsoY + 7], roles.secondary);
+    fillTriangle(frame, size, [cx - Math.round(2 * s), torsoY + Math.round(2 * s)], [cx - Math.round(6 * s) - motion.wingSwing, torsoY + Math.round(4 * s)], [cx - Math.round(3 * s), torsoY + Math.round(7 * s)], roles.secondary);
+    fillTriangle(frame, size, [cx + Math.round(2 * s), torsoY + Math.round(2 * s)], [cx + Math.round(6 * s) + motion.wingSwing, torsoY + Math.round(4 * s)], [cx + Math.round(3 * s), torsoY + Math.round(7 * s)], roles.secondary);
   }
 
   if (recipe.outfitStyle !== "dress") {
-    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
-    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
-    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
-    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+    drawLine(frame, size, cx - hipSpread, torsoY + torsoH - Math.round(s), cx - hipSpread + motion.legSwingA, ground, roles.outline, th + 1);
+    drawLine(frame, size, cx + hipSpread, torsoY + torsoH - Math.round(s), cx + hipSpread + motion.legSwingB, ground, roles.outline, th + 1);
+    drawLine(frame, size, cx - hipSpread, torsoY + torsoH - Math.round(s), cx - hipSpread + motion.legSwingA, ground - Math.round(s), roles.primary, th);
+    drawLine(frame, size, cx + hipSpread, torsoY + torsoH - Math.round(s), cx + hipSpread + motion.legSwingB, ground - Math.round(s), roles.primary, th);
   }
 
+  const armLen = Math.round(4 * s);
   const leadHandX = mirrorX(rightShoulderX + motion.armSwingA, cx, facing);
-  const leadHandY = shoulderY + 4 + Math.abs(motion.armSwingA) / 2;
+  const leadHandY = shoulderY + armLen + Math.round(Math.abs(motion.armSwingA) / 2);
   const rearHandX = mirrorX(leftShoulderX + motion.armSwingB, cx, facing);
-  const rearHandY = shoulderY + 4 + Math.abs(motion.armSwingB) / 2;
+  const rearHandY = shoulderY + armLen + Math.round(Math.abs(motion.armSwingB) / 2);
 
-  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, 2);
-  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, 2);
-  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary);
-  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary);
-  drawAccessory(frame, size, recipe, leadHandX, leadHandY, facing, roles);
+  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, th + 1);
+  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, th + 1);
+  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary, th);
+  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary, th);
+  drawAccessory(frame, size, recipe, leadHandX, leadHandY, facing, roles, s);
 }
 
 function drawCanine(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2);
-  const ground = size - 4 - motion.airborneLift;
+  const ground = size - Math.round(4 * s) - motion.airborneLift;
   const dir = facing === "left" ? -1 : 1;
-  const bodyY = ground - 7 + motion.bob + motion.collapse;
-  const bodyLength = style === "chibi" ? 9 : 11;
-  const headX = cx + (dir * 5);
+  const bodyY = ground - Math.round(7 * s) + motion.bob + motion.collapse;
+  const bodyLength = Math.round((style === "chibi" ? 9 : 11) * s);
+  const headX = cx + Math.round(dir * 5 * s);
   const bodyX = cx - Math.floor(bodyLength / 2);
+  const th = Math.max(1, Math.round(s));
 
-  fillEllipse(frame, size, cx, bodyY, Math.floor(bodyLength / 2), 3 - motion.squash + motion.stretch, roles.outline);
-  fillEllipse(frame, size, cx, bodyY, Math.max(2, Math.floor(bodyLength / 2) - 1), 2 - Math.min(1, motion.squash) + motion.stretch, roles.primary);
-  fillEllipse(frame, size, headX, bodyY - 2 + motion.headOffset, 3, 3, roles.outline);
-  fillEllipse(frame, size, headX, bodyY - 2 + motion.headOffset, 2, 2, roles.secondary);
+  fillEllipse(frame, size, cx, bodyY, Math.floor(bodyLength / 2), Math.round(3 * s), roles.outline);
+  fillEllipse(frame, size, cx, bodyY, Math.max(Math.round(2 * s), Math.floor(bodyLength / 2) - Math.round(s)), Math.round(2 * s), roles.primary);
+  fillEllipse(frame, size, headX, bodyY - Math.round(2 * s) + motion.headOffset, Math.round(3 * s), Math.round(3 * s), roles.outline);
+  fillEllipse(frame, size, headX, bodyY - Math.round(2 * s) + motion.headOffset, Math.round(2 * s), Math.round(2 * s), roles.secondary);
 
   if (recipe.features.includes("ears")) {
-    fillTriangle(frame, size, [headX - (dir * 1), bodyY - 4], [headX - (dir * 2), bodyY - 7], [headX, bodyY - 4], roles.outline);
-    fillTriangle(frame, size, [headX + (dir * 1), bodyY - 4], [headX + (dir * 2), bodyY - 7], [headX, bodyY - 4], roles.outline);
-    fillTriangle(frame, size, [headX - (dir * 1), bodyY - 5], [headX - (dir * 2), bodyY - 6], [headX, bodyY - 4], roles.accent);
-    fillTriangle(frame, size, [headX + (dir * 1), bodyY - 5], [headX + (dir * 2), bodyY - 6], [headX, bodyY - 4], roles.accent);
+    fillTriangle(frame, size, [headX - Math.round(dir * s), bodyY - Math.round(4 * s)], [headX - Math.round(dir * 2 * s), bodyY - Math.round(7 * s)], [headX, bodyY - Math.round(4 * s)], roles.outline);
+    fillTriangle(frame, size, [headX + Math.round(dir * s), bodyY - Math.round(4 * s)], [headX + Math.round(dir * 2 * s), bodyY - Math.round(7 * s)], [headX, bodyY - Math.round(4 * s)], roles.outline);
   }
+  if (recipe.features.includes("tail")) drawLine(frame, size, bodyX - dir, bodyY - Math.round(s), bodyX - Math.round(dir * (3 * s + motion.tailSwing)), bodyY - Math.round(3 * s) + motion.tailSwing, roles.outline, th + 1);
 
-  if (recipe.features.includes("tail")) {
-    drawLine(frame, size, bodyX - dir, bodyY - 1, bodyX - (dir * (3 + motion.tailSwing)), bodyY - 3 + motion.tailSwing, roles.outline, 2);
-    drawLine(frame, size, bodyX - dir, bodyY - 1, bodyX - (dir * (2 + motion.tailSwing)), bodyY - 3 + motion.tailSwing, roles.secondary);
-  }
-
-  if (recipe.features.includes("spots")) {
-    fillEllipse(frame, size, cx - dir, bodyY - 1, 1, 1, roles.accent);
-    fillEllipse(frame, size, cx + dir, bodyY + 1, 1, 1, roles.accent);
-  }
-
-  const legXs = [cx - 3, cx - 1, cx + 1, cx + 3];
+  const legXs = [cx - Math.round(3 * s), cx - Math.round(s), cx + Math.round(s), cx + Math.round(3 * s)];
   const legSwings = [motion.legSwingA, motion.legSwingB, motion.legSwingB, motion.legSwingA];
-  legXs.forEach((legX, index) => {
-    drawLine(frame, size, legX, bodyY + 2, legX + legSwings[index], ground, roles.outline, 2);
-    drawLine(frame, size, legX, bodyY + 2, legX + legSwings[index], ground - 1, roles.primary);
+  legXs.forEach((legX, i) => {
+    drawLine(frame, size, legX, bodyY + Math.round(2 * s), legX + legSwings[i], ground, roles.outline, th + 1);
+    drawLine(frame, size, legX, bodyY + Math.round(2 * s), legX + legSwings[i], ground - Math.round(s), roles.primary, th);
   });
-
-  drawEyes(frame, size, recipe, headX, bodyY - 2, facing, roles.eye);
-  setPixel(frame, size, headX + (dir * 2), bodyY - 1, roles.accent);
+  drawEyes(frame, size, recipe, headX, bodyY - Math.round(2 * s), facing, roles.eye, s);
 }
 
 function drawSlime(frame: number[], size: number, recipe: SpriteRecipe, _facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2);
-  const ground = size - 4;
-  const rx = 5 + motion.squash - motion.stretch;
-  const ry = 4 - motion.squash + motion.stretch;
-  const cy = ground - 4 - motion.airborneLift;
-
-  fillEllipse(frame, size, cx, cy, rx + 1, ry + 1, roles.outline);
+  const ground = size - Math.round(4 * s);
+  const rx = Math.round(5 * s) + motion.squash - motion.stretch;
+  const ry = Math.round(4 * s) - motion.squash + motion.stretch;
+  const cy = ground - Math.round(4 * s) - motion.airborneLift;
+  fillEllipse(frame, size, cx, cy, rx + Math.round(s), ry + Math.round(s), roles.outline);
   fillEllipse(frame, size, cx, cy, rx, ry, roles.primary);
-  fillEllipse(frame, size, cx - 1, cy - 1, 1, 1, roles.highlight);
-  fillEllipse(frame, size, cx + 3, cy - 2, 1, 1, roles.highlight);
-  drawEyes(frame, size, recipe, cx, cy, "right", roles.eye);
+  fillEllipse(frame, size, cx - Math.round(s), cy - Math.round(s), Math.round(s), Math.round(s), roles.highlight);
+  fillEllipse(frame, size, cx + Math.round(3 * s), cy - Math.round(2 * s), Math.round(s), Math.round(s), roles.highlight);
+  drawEyes(frame, size, recipe, cx, cy, "right", roles.eye, s);
 }
 
 function drawBird(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2);
-  const ground = size - 4 - motion.airborneLift;
+  const ground = size - Math.round(4 * s) - motion.airborneLift;
   const dir = facing === "left" ? -1 : 1;
-  const bodyY = ground - 8 + motion.bob;
-  const headX = cx + (dir * 2);
-
-  fillEllipse(frame, size, cx, bodyY, 4, 5 - motion.squash + motion.stretch, roles.outline);
-  fillEllipse(frame, size, cx, bodyY, 3, 4 - motion.squash + motion.stretch, roles.primary);
-  fillEllipse(frame, size, headX, bodyY - 5, 3, 3, roles.outline);
-  fillEllipse(frame, size, headX, bodyY - 5, 2, 2, roles.secondary);
-  fillTriangle(frame, size, [headX + (dir * 3), bodyY - 5], [headX + (dir * 5), bodyY - 4], [headX + (dir * 3), bodyY - 3], roles.accent);
-  fillTriangle(frame, size, [cx, bodyY - 1], [cx - 5 - motion.wingSwing, bodyY + 1], [cx - 1, bodyY + 4], roles.secondary);
-  fillTriangle(frame, size, [cx, bodyY - 1], [cx + 5 + motion.wingSwing, bodyY + 1], [cx + 1, bodyY + 4], roles.secondary);
-  drawLine(frame, size, cx - 1, bodyY + 4, cx - 1 + motion.legSwingA, ground, roles.outline);
-  drawLine(frame, size, cx + 1, bodyY + 4, cx + 1 + motion.legSwingB, ground, roles.outline);
-  drawEyes(frame, size, recipe, headX, bodyY - 5, facing, roles.eye);
+  const bodyY = ground - Math.round(8 * s) + motion.bob;
+  const headX = cx + Math.round(dir * 2 * s);
+  const th = Math.max(1, Math.round(s));
+  fillEllipse(frame, size, cx, bodyY, Math.round(4 * s), Math.round(5 * s), roles.outline);
+  fillEllipse(frame, size, cx, bodyY, Math.round(3 * s), Math.round(4 * s), roles.primary);
+  fillEllipse(frame, size, headX, bodyY - Math.round(5 * s), Math.round(3 * s), Math.round(3 * s), roles.outline);
+  fillEllipse(frame, size, headX, bodyY - Math.round(5 * s), Math.round(2 * s), Math.round(2 * s), roles.secondary);
+  fillTriangle(frame, size, [headX + Math.round(dir * 3 * s), bodyY - Math.round(5 * s)], [headX + Math.round(dir * 5 * s), bodyY - Math.round(4 * s)], [headX + Math.round(dir * 3 * s), bodyY - Math.round(3 * s)], roles.accent);
+  fillTriangle(frame, size, [cx, bodyY - Math.round(s)], [cx - Math.round(5 * s) - motion.wingSwing, bodyY + Math.round(s)], [cx - Math.round(s), bodyY + Math.round(4 * s)], roles.secondary);
+  fillTriangle(frame, size, [cx, bodyY - Math.round(s)], [cx + Math.round(5 * s) + motion.wingSwing, bodyY + Math.round(s)], [cx + Math.round(s), bodyY + Math.round(4 * s)], roles.secondary);
+  drawLine(frame, size, cx - Math.round(s), bodyY + Math.round(4 * s), cx - Math.round(s) + motion.legSwingA, ground, roles.outline, th);
+  drawLine(frame, size, cx + Math.round(s), bodyY + Math.round(4 * s), cx + Math.round(s) + motion.legSwingB, ground, roles.outline, th);
+  drawEyes(frame, size, recipe, headX, bodyY - Math.round(5 * s), facing, roles.eye, s);
 }
 
 function drawRobot(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2);
-  const ground = size - 4 - motion.airborneLift;
-  const bodyY = ground - 11 + motion.bob + motion.collapse;
-  const headY = bodyY - 5;
-
-  fillRect(frame, size, cx - 4, bodyY, 9, 7, roles.outline);
-  fillRect(frame, size, cx - 3, bodyY + 1, 7, 5, roles.primary);
-  fillRect(frame, size, cx - 3, bodyY + 4, 7, 1, roles.shadow);
-  fillRect(frame, size, cx - 3, headY, 7, 5, roles.outline);
-  fillRect(frame, size, cx - 2, headY + 1, 5, 3, roles.secondary);
-  fillRect(frame, size, cx - 2, headY + 2, 1, 1, roles.eye);
-  fillRect(frame, size, cx + 1, headY + 2, 1, 1, roles.eye);
-
+  const ground = size - Math.round(4 * s) - motion.airborneLift;
+  const bodyY = ground - Math.round(11 * s) + motion.bob + motion.collapse;
+  const headY = bodyY - Math.round(5 * s);
+  const th = Math.max(1, Math.round(s));
+  fillRect(frame, size, cx - Math.round(4 * s), bodyY, Math.round(9 * s), Math.round(7 * s), roles.outline);
+  fillRect(frame, size, cx - Math.round(3 * s), bodyY + Math.round(s), Math.round(7 * s), Math.round(5 * s), roles.primary);
+  fillRect(frame, size, cx - Math.round(3 * s), headY, Math.round(7 * s), Math.round(5 * s), roles.outline);
+  fillRect(frame, size, cx - Math.round(2 * s), headY + Math.round(s), Math.round(5 * s), Math.round(3 * s), roles.secondary);
+  fillRect(frame, size, cx - Math.round(2 * s), headY + Math.round(2 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.eye);
+  fillRect(frame, size, cx + Math.round(s), headY + Math.round(2 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.eye);
   if (recipe.features.includes("antenna")) {
-    drawLine(frame, size, cx, headY, cx, headY - 3, roles.outline);
-    setPixel(frame, size, cx, headY - 3, roles.accent);
+    drawLine(frame, size, cx, headY, cx, headY - Math.round(3 * s), roles.outline, th);
+    fillRect(frame, size, cx, headY - Math.round(3 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
   }
-
-  drawLine(frame, size, cx - 2, bodyY + 1, cx - 4 + motion.armSwingB, bodyY + 5, roles.outline, 2);
-  drawLine(frame, size, cx + 2, bodyY + 1, cx + 4 + motion.armSwingA, bodyY + 5, roles.outline, 2);
-  drawLine(frame, size, cx - 2, bodyY + 6, cx - 2 + motion.legSwingA, ground, roles.outline, 2);
-  drawLine(frame, size, cx + 2, bodyY + 6, cx + 2 + motion.legSwingB, ground, roles.outline, 2);
-  drawAccessory(frame, size, recipe, mirrorX(cx + 4 + motion.armSwingA, cx, facing), bodyY + 5, facing, roles);
+  drawLine(frame, size, cx - Math.round(2 * s), bodyY + Math.round(s), cx - Math.round(4 * s) + motion.armSwingB, bodyY + Math.round(5 * s), roles.outline, th + 1);
+  drawLine(frame, size, cx + Math.round(2 * s), bodyY + Math.round(s), cx + Math.round(4 * s) + motion.armSwingA, bodyY + Math.round(5 * s), roles.outline, th + 1);
+  drawLine(frame, size, cx - Math.round(2 * s), bodyY + Math.round(6 * s), cx - Math.round(2 * s) + motion.legSwingA, ground, roles.outline, th + 1);
+  drawLine(frame, size, cx + Math.round(2 * s), bodyY + Math.round(6 * s), cx + Math.round(2 * s) + motion.legSwingB, ground, roles.outline, th + 1);
+  drawAccessory(frame, size, recipe, mirrorX(cx + Math.round(4 * s) + motion.armSwingA, cx, facing), bodyY + Math.round(5 * s), facing, roles, s);
 }
 
 function drawSkeleton(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const s = size / 24;
   const roles = paletteRoles(recipe.palette);
   const cx = Math.round(size / 2);
-  const ground = size - 4 - motion.airborneLift;
-  const spineY = ground - 10 + motion.bob + motion.collapse;
-  fillEllipse(frame, size, cx, spineY - 4, 3, 3, roles.outline);
-  fillEllipse(frame, size, cx, spineY - 4, 2, 2, roles.highlight);
-  drawEyes(frame, size, recipe, cx, spineY - 4, facing, roles.eye);
-  drawLine(frame, size, cx, spineY - 1, cx, spineY + 5, roles.outline);
-  drawLine(frame, size, cx - 3, spineY + 1, cx + 3, spineY + 1, roles.outline);
-  drawLine(frame, size, cx - 1, spineY + 5, cx - 2 + motion.legSwingA, ground, roles.outline);
-  drawLine(frame, size, cx + 1, spineY + 5, cx + 2 + motion.legSwingB, ground, roles.outline);
-  drawLine(frame, size, cx - 3, spineY + 1, cx - 4 + motion.armSwingB, spineY + 5, roles.outline);
-  drawLine(frame, size, cx + 3, spineY + 1, cx + 4 + motion.armSwingA, spineY + 5, roles.outline);
+  const ground = size - Math.round(4 * s) - motion.airborneLift;
+  const spineY = ground - Math.round(10 * s) + motion.bob + motion.collapse;
+  const th = Math.max(1, Math.round(s));
+  fillEllipse(frame, size, cx, spineY - Math.round(4 * s), Math.round(3 * s), Math.round(3 * s), roles.outline);
+  fillEllipse(frame, size, cx, spineY - Math.round(4 * s), Math.round(2 * s), Math.round(2 * s), roles.highlight);
+  drawEyes(frame, size, recipe, cx, spineY - Math.round(4 * s), facing, roles.eye, s);
+  drawLine(frame, size, cx, spineY - Math.round(s), cx, spineY + Math.round(5 * s), roles.outline, th);
+  drawLine(frame, size, cx - Math.round(3 * s), spineY + Math.round(s), cx + Math.round(3 * s), spineY + Math.round(s), roles.outline, th);
+  drawLine(frame, size, cx - Math.round(s), spineY + Math.round(5 * s), cx - Math.round(2 * s) + motion.legSwingA, ground, roles.outline, th);
+  drawLine(frame, size, cx + Math.round(s), spineY + Math.round(5 * s), cx + Math.round(2 * s) + motion.legSwingB, ground, roles.outline, th);
+  drawLine(frame, size, cx - Math.round(3 * s), spineY + Math.round(s), cx - Math.round(4 * s) + motion.armSwingB, spineY + Math.round(5 * s), roles.outline, th);
+  drawLine(frame, size, cx + Math.round(3 * s), spineY + Math.round(s), cx + Math.round(4 * s) + motion.armSwingA, spineY + Math.round(5 * s), roles.outline, th);
 }
 
 function renderFrame(recipe: SpriteRecipe, size: number, animationType: AnimationType, frameIndex: number, frameCount: number, facing: FacingDirection, style: SpriteStyle) {
   const frame = createFrame(size);
-  const motion = getMotionState(animationType, frameIndex, frameCount);
-
+  const s = size / 24;
+  const motion = getMotionState(animationType, frameIndex, frameCount, s);
   if (recipe.archetype === "humanoid") drawHumanoid(frame, size, recipe, facing, style, motion);
   else if (recipe.archetype === "canine") drawCanine(frame, size, recipe, facing, style, motion);
   else if (recipe.archetype === "slime") drawSlime(frame, size, recipe, facing, style, motion);
   else if (recipe.archetype === "bird") drawBird(frame, size, recipe, facing, style, motion);
   else if (recipe.archetype === "robot") drawRobot(frame, size, recipe, facing, style, motion);
   else drawSkeleton(frame, size, recipe, facing, style, motion);
-
   return frame;
 }
 
@@ -638,46 +626,25 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-
   try {
     const { prompt, animationType, style, palette, resolution, frameCount, facingDirection } = await req.json();
-
     if (!prompt || !animationType || !resolution || !frameCount) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
     const outputSize = parseInt(resolution);
     const logicalSize = getLogicalSize(outputSize);
     const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
     const recipe = buildRecipe(String(prompt), palette as PaletteType);
-
     const frames = Array.from({ length: totalFrames }, (_, index) =>
       renderFrame(recipe, logicalSize, animationType as AnimationType, index, totalFrames, facingDirection as FacingDirection, style as SpriteStyle)
     );
-
-    console.log(`Generated ${frames.length} deterministic ${recipe.archetype} frames for: ${recipe.summary}`);
-
+    console.log(`Generated ${frames.length} deterministic ${recipe.archetype} frames at ${logicalSize}px for: ${recipe.summary}`);
     return new Response(
-      JSON.stringify({
-        type: "pixel-data",
-        palette: recipe.palette,
-        frames,
-        frameCount: totalFrames,
-        frameWidth: outputSize,
-        frameHeight: outputSize,
-        logicalFrameWidth: logicalSize,
-        logicalFrameHeight: logicalSize,
-      }),
+      JSON.stringify({ type: "pixel-data", palette: recipe.palette, frames, frameCount: totalFrames, frameWidth: outputSize, frameHeight: outputSize, logicalFrameWidth: logicalSize, logicalFrameHeight: logicalSize }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
     console.error("generate-sprite error:", e);
-    return new Response(
-      JSON.stringify({ error: "Sprite generation failed. Please try a different prompt." }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "Sprite generation failed. Please try a different prompt." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
