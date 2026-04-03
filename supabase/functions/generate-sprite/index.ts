@@ -319,19 +319,19 @@ function paletteRoles(palette: string[]) {
   };
 }
 
-function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number): MotionState {
+function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number, s: number): MotionState {
   const phase = (frameIndex / frameCount) * Math.PI * 2;
   const wave = Math.sin(phase);
   const wave2 = Math.sin(phase + Math.PI);
 
   if (animationType === "idle") {
-    return { bob: Math.round(wave * 0.5), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5), tailSwing: Math.round(wave * 1.5), wingSwing: Math.round(wave * 1.5), squash: 0, stretch: 0, collapse: 0 };
+    return { bob: Math.round(wave * 0.5 * s), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5 * s), tailSwing: Math.round(wave * 1.5 * s), wingSwing: Math.round(wave * 1.5 * s), squash: 0, stretch: 0, collapse: 0 };
   }
   if (animationType === "walk") {
-    return { bob: Math.round(Math.abs(wave) * 1), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2), armSwingB: Math.round(wave2 * 2), legSwingA: Math.round(wave * 2), legSwingB: Math.round(wave2 * 2), headOffset: 0, tailSwing: Math.round(wave * 2), wingSwing: Math.round(wave * 2), squash: 0, stretch: 0, collapse: 0 };
+    return { bob: Math.round(Math.abs(wave) * 1 * s), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2 * s), armSwingB: Math.round(wave2 * 2 * s), legSwingA: Math.round(wave * 2 * s), legSwingB: Math.round(wave2 * 2 * s), headOffset: 0, tailSwing: Math.round(wave * 2 * s), wingSwing: Math.round(wave * 2 * s), squash: 0, stretch: 0, collapse: 0 };
   }
   if (animationType === "run") {
-    return { bob: Math.round(Math.abs(wave) * 2), airborneLift: wave > 0.2 ? 2 : 0, torsoTilt: 1, armSwingA: Math.round(wave * 3), armSwingB: Math.round(wave2 * 3), legSwingA: Math.round(wave * 3), legSwingB: Math.round(wave2 * 3), headOffset: 0, tailSwing: Math.round(wave * 3), wingSwing: Math.round(wave * 3), squash: 0, stretch: 1, collapse: 0 };
+    return { bob: Math.round(Math.abs(wave) * 2 * s), airborneLift: wave > 0.2 ? Math.round(2 * s) : 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(wave * 3 * s), armSwingB: Math.round(wave2 * 3 * s), legSwingA: Math.round(wave * 3 * s), legSwingB: Math.round(wave2 * 3 * s), headOffset: 0, tailSwing: Math.round(wave * 3 * s), wingSwing: Math.round(wave * 3 * s), squash: 0, stretch: Math.round(1 * s), collapse: 0 };
   }
   if (animationType === "jump") {
     const presets = frameCount === 4
@@ -350,7 +350,7 @@ function getMotionState(animationType: AnimationType, frameIndex: number, frameC
           { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
         ];
     const preset = presets[frameIndex] ?? presets[0];
-    return { bob: preset.bob, airborneLift: preset.airborneLift, torsoTilt: 0, armSwingA: 1, armSwingB: -1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 1, wingSwing: 3, squash: preset.squash, stretch: preset.stretch, collapse: 0 };
+    return { bob: Math.round(preset.bob * s), airborneLift: Math.round(preset.airborneLift * s), torsoTilt: 0, armSwingA: Math.round(1 * s), armSwingB: Math.round(-1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(3 * s), squash: Math.round(preset.squash * s), stretch: Math.round(preset.stretch * s), collapse: 0 };
   }
   if (animationType === "attack") {
     const presets = frameCount === 4
@@ -369,10 +369,10 @@ function getMotionState(animationType: AnimationType, frameIndex: number, frameC
           { torsoTilt: 0, armSwingA: 0, armSwingB: 0 },
         ];
     const preset = presets[frameIndex] ?? presets[0];
-    return { bob: 0, airborneLift: 0, torsoTilt: preset.torsoTilt, armSwingA: preset.armSwingA, armSwingB: preset.armSwingB, legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: 1, wingSwing: 1, squash: 0, stretch: 0, collapse: 0 };
+    return { bob: 0, airborneLift: 0, torsoTilt: Math.round(preset.torsoTilt * s), armSwingA: Math.round(preset.armSwingA * s), armSwingB: Math.round(preset.armSwingB * s), legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(1 * s), squash: 0, stretch: 0, collapse: 0 };
   }
-  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8);
-  return { bob: 0, airborneLift: 0, torsoTilt: 1, armSwingA: -1, armSwingB: 1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
+  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8 * s);
+  return { bob: 0, airborneLift: 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(-1 * s), armSwingB: Math.round(1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
 }
 
 function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number) {
