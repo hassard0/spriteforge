@@ -90,17 +90,20 @@ export default function GeneratePage() {
         throw new Error(errorMsg);
       }
 
-      if (!data?.frames || !Array.isArray(data.frames) || data.frames.length === 0) {
-        throw new Error('No frames generated. The AI model may have declined your prompt.');
+      // New format: single sprite sheet image
+      if (!data?.spriteSheet) {
+        throw new Error('No sprite sheet generated. The AI model may have declined your prompt.');
       }
 
       setProgress(95);
 
-      // Stitch individual frame images into a single sprite sheet
-      const actualFrameCount = data.frames.length;
+      const actualFrameCount = Number(data.frameCount) || frameCount;
       const frameWidth = Number(data.frameWidth) || fw;
       const frameHeight = Number(data.frameHeight) || fw;
-      const spriteSheetDataUrl = await stitchFrames(data.frames, frameWidth, frameHeight);
+
+      // The backend now returns a single sprite sheet image.
+      // We pass it directly — the preview player will slice it.
+      const spriteSheetDataUrl = data.spriteSheet;
 
       setProgress(100);
 
