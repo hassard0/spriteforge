@@ -90,17 +90,22 @@ export default function GeneratePage() {
         throw new Error(errorMsg);
       }
 
-      if (!Array.isArray(data?.frames) || data.frames.length === 0) {
+      if (data?.type !== 'pixel-data' || !Array.isArray(data?.frames) || data.frames.length === 0) {
         throw new Error('No animation frames generated. The AI model may have declined your prompt.');
       }
 
       setProgress(95);
 
-      const actualFrameCount = Number(data.frameCount) || frameCount;
+      const actualFrameCount = data.frames.length;
       const frameWidth = Number(data.frameWidth) || fw;
       const frameHeight = Number(data.frameHeight) || fw;
 
-      const spriteSheetDataUrl = await stitchFrames(data.frames, frameWidth, frameHeight);
+      const spriteSheetDataUrl = renderPixelSpriteSheet({
+        palette: data.palette,
+        frames: data.frames,
+        frameWidth,
+        frameHeight,
+      });
 
       setProgress(100);
 
