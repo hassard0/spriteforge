@@ -16,6 +16,10 @@ type FacingDirection = "left" | "right" | "up" | "down";
 type AnimationType = "idle" | "walk" | "run" | "attack" | "jump" | "death";
 type PaletteType = "nes" | "snes" | "gameboy" | "custom";
 type SpriteStyle = "pixel-art" | "chibi" | "cel-shaded";
+type BodyType = "slim" | "average" | "stocky";
+type GenderPresentation = "neutral" | "feminine" | "masculine";
+type HairStyle = "none" | "short" | "long" | "spiky";
+type OutfitStyle = "tunic" | "robe" | "armor" | "dress";
 
 type SpriteRecipe = {
   archetype: Archetype;
@@ -23,6 +27,10 @@ type SpriteRecipe = {
   features: Feature[];
   accessory: Accessory;
   expression: Expression;
+  bodyType: BodyType;
+  genderPresentation: GenderPresentation;
+  hairStyle: HairStyle;
+  outfitStyle: OutfitStyle;
   summary: string;
 };
 
@@ -113,27 +121,108 @@ function detectExpression(prompt: string): Expression {
   return "neutral";
 }
 
-function promptTint(prompt: string): string[] {
+function detectBodyType(prompt: string): BodyType {
   const input = prompt.toLowerCase();
-  if (/(blue|ice|water|frost)/.test(input)) return ["#3B82F6", "#93C5FD"];
-  if (/(green|nature|forest|poison)/.test(input)) return ["#22C55E", "#86EFAC"];
-  if (/(red|fire|lava|flame)/.test(input)) return ["#EF4444", "#FCA5A5"];
-  if (/(gold|yellow|sun)/.test(input)) return ["#EAB308", "#FDE047"];
-  if (/(purple|magic|arcane)/.test(input)) return ["#A855F7", "#D8B4FE"];
-  return [];
+  if (/(fat|heavy|plus size|plus-size|stocky|chubby|wide|broad)/.test(input)) return "stocky";
+  if (/(slim|thin|lean|skinny|lanky)/.test(input)) return "slim";
+  return "average";
+}
+
+function detectGenderPresentation(prompt: string): GenderPresentation {
+  const input = prompt.toLowerCase();
+  if (/(woman|girl|female|lady|queen|princess|witch|sorceress)/.test(input)) return "feminine";
+  if (/(man|boy|male|king|prince|wizard|barbarian|gentleman|bearded)/.test(input)) return "masculine";
+  return "neutral";
+}
+
+function detectHairStyle(prompt: string, genderPresentation: GenderPresentation): HairStyle {
+  const input = prompt.toLowerCase();
+  if (/(bald|shaved head)/.test(input)) return "none";
+  if (/(mohawk|spiky hair|spiked hair)/.test(input)) return "spiky";
+  if (/(long hair|braid|ponytail|pigtail|flowing hair)/.test(input)) return "long";
+  if (genderPresentation === "feminine") return "long";
+  return "short";
+}
+
+function detectOutfitStyle(prompt: string): OutfitStyle {
+  const input = prompt.toLowerCase();
+  if (/(armor|armour|knight|paladin|soldier)/.test(input)) return "armor";
+  if (/(robe|wizard|witch|mage|priest)/.test(input)) return "robe";
+  if (/(dress|gown|skirt|princess|queen)/.test(input)) return "dress";
+  return "tunic";
+}
+
+function detectOutfitColors(prompt: string): { primary: string; shadow: string } | null {
+  const input = prompt.toLowerCase();
+  if (/(blue|azure|navy|ice|water|frost)/.test(input)) return { primary: "#4F7DFF", shadow: "#2F4FA8" };
+  if (/(green|nature|forest|poison)/.test(input)) return { primary: "#3FAE5A", shadow: "#2F7A43" };
+  if (/(red|fire|lava|flame)/.test(input)) return { primary: "#D95763", shadow: "#8C3740" };
+  if (/(gold|yellow|sun)/.test(input)) return { primary: "#D6A63C", shadow: "#8C6A23" };
+  if (/(purple|magic|arcane)/.test(input)) return { primary: "#8A63D2", shadow: "#5A3D90" };
+  if (/(pink|rose)/.test(input)) return { primary: "#D97AA8", shadow: "#8C4D6C" };
+  if (/(black|dark)/.test(input)) return { primary: "#4B5563", shadow: "#1F2937" };
+  if (/(white|ivory)/.test(input)) return { primary: "#D6DBE4", shadow: "#9AA3B2" };
+  if (/(brown|leather|wood)/.test(input)) return { primary: "#8B5E3C", shadow: "#5D3C24" };
+  if (/(silver|steel|metal)/.test(input)) return { primary: "#AEB7C4", shadow: "#707A8A" };
+  if (/(orange|amber)/.test(input)) return { primary: "#D97A34", shadow: "#8C4C1E" };
+  return null;
+}
+
+function detectSkinTone(prompt: string): string {
+  const input = prompt.toLowerCase();
+  if (/(dark skin|brown skin|black skin|deep skin)/.test(input)) return "#8D5A3A";
+  if (/(olive skin|tan skin|tan)/.test(input)) return "#C68642";
+  if (/(pale skin|fair skin|pale|fair)/.test(input)) return "#F1C27D";
+  return "#D9A066";
+}
+
+function detectHairColor(prompt: string): string {
+  const input = prompt.toLowerCase();
+  if (/(blonde|blond|golden hair|yellow hair)/.test(input)) return "#D7B25C";
+  if (/(black hair|dark hair|brunette)/.test(input)) return "#3A2C25";
+  if (/(brown hair|auburn)/.test(input)) return "#7A4B2E";
+  if (/(red hair|ginger)/.test(input)) return "#B85438";
+  if (/(white hair|gray hair|grey hair|silver hair)/.test(input)) return "#D7DAE0";
+  if (/(pink hair)/.test(input)) return "#D97AA8";
+  if (/(blue hair)/.test(input)) return "#6F8BFF";
+  return "#6B4B3A";
+}
+
+function promptTint(prompt: string): string[] {
+  const colors = detectOutfitColors(prompt);
+  return colors ? [colors.primary, colors.shadow] : [];
+}
+
+function buildHumanoidPalette(prompt: string, paletteType: PaletteType): string[] {
+  if (paletteType === "gameboy") return defaultPaletteSeed(paletteType);
+
+  const base = defaultPaletteSeed(paletteType);
+  const outfitColors = detectOutfitColors(prompt);
+  const bodyColor = outfitColors?.primary ?? base[2];
+  const bodyShadow = outfitColors?.shadow ?? base[3];
+  const skinTone = detectSkinTone(prompt);
+  const hairColor = detectHairColor(prompt);
+
+  return dedupePalette(["#00000000", base[1], bodyColor, bodyShadow, skinTone, hairColor, base[6], base[7]]);
 }
 
 function buildRecipe(prompt: string, paletteType: PaletteType): SpriteRecipe {
   const archetype = detectArchetype(prompt);
-  const features = detectFeatures(prompt, archetype);
-  const palette = dedupePalette(["#00000000", ...promptTint(prompt), ...defaultPaletteSeed(paletteType)]);
+  const genderPresentation = detectGenderPresentation(prompt);
+  const palette = archetype === "humanoid"
+    ? buildHumanoidPalette(prompt, paletteType)
+    : dedupePalette(["#00000000", ...promptTint(prompt), ...defaultPaletteSeed(paletteType)]);
 
   return {
     archetype,
     palette,
-    features,
+    features: detectFeatures(prompt, archetype),
     accessory: detectAccessory(prompt),
     expression: detectExpression(prompt),
+    bodyType: detectBodyType(prompt),
+    genderPresentation,
+    hairStyle: detectHairStyle(prompt, genderPresentation),
+    outfitStyle: detectOutfitStyle(prompt),
     summary: prompt.trim().slice(0, 200),
   };
 }
@@ -325,27 +414,55 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
   const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
   const ground = size - 4 - motion.airborneLift;
   const headSize = style === "chibi" ? 4 : 3;
-  const torsoW = style === "chibi" ? 6 : 5;
+  const bodyWidthOffset = recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0;
+  const torsoW = Math.max(4, (style === "chibi" ? 6 : 5) + bodyWidthOffset + (recipe.outfitStyle === "armor" ? 1 : 0));
   const torsoH = style === "chibi" ? 6 : 7;
   const torsoY = ground - 11 + motion.bob + motion.collapse;
   const headY = torsoY - headSize - 2 + motion.headOffset + motion.collapse;
-  const leftHipX = cx - 1;
-  const rightHipX = cx + 1;
+  const leftHipX = cx - 1 - Math.max(0, Math.floor(bodyWidthOffset / 2));
+  const rightHipX = cx + 1 + Math.max(0, Math.floor(bodyWidthOffset / 2));
   const shoulderY = torsoY + 1;
-  const leftShoulderX = cx - 2;
-  const rightShoulderX = cx + 2;
+  const leftShoulderX = cx - Math.max(2, Math.floor(torsoW / 2));
+  const rightShoulderX = cx + Math.max(2, Math.floor(torsoW / 2));
 
   if (recipe.features.includes("cape")) {
     fillTriangle(frame, size, [cx, torsoY + 1], [cx - 4, torsoY + 8], [cx + 4, torsoY + 8], roles.secondary);
   }
 
-  fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
-  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
-  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+  if (recipe.outfitStyle === "dress") {
+    fillTriangle(frame, size, [cx, torsoY + 2], [cx - Math.max(4, Math.floor(torsoW / 2) + 1), ground], [cx + Math.max(4, Math.floor(torsoW / 2) + 1), ground], roles.outline);
+    fillTriangle(frame, size, [cx, torsoY + 3], [cx - Math.max(3, Math.floor(torsoW / 2)), ground - 1], [cx + Math.max(3, Math.floor(torsoW / 2)), ground - 1], roles.primary);
+  } else if (recipe.outfitStyle === "robe") {
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH + 1 - motion.squash + motion.stretch, roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 1 - motion.squash + motion.stretch), roles.primary);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + torsoH - 1, torsoW - 2, 1, roles.shadow);
+  } else {
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+  }
 
   fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, headSize * 2 + 1, roles.outline);
   fillRect(frame, size, cx - headSize + 1, headY + 1, Math.max(1, headSize * 2 - 1), Math.max(1, headSize * 2 - 1), roles.secondary);
+
+  if (recipe.hairStyle === "short") {
+    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
+  }
+  if (recipe.hairStyle === "long") {
+    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
+    fillRect(frame, size, cx - headSize, headY + 3, 2, headSize + 1, roles.accent);
+    fillRect(frame, size, cx + headSize - 1, headY + 3, 2, headSize + 1, roles.accent);
+  }
+  if (recipe.hairStyle === "spiky") {
+    fillTriangle(frame, size, [cx - 2, headY + 1], [cx - 1, headY - 2], [cx, headY + 1], roles.accent);
+    fillTriangle(frame, size, [cx, headY + 1], [cx + 1, headY - 2], [cx + 2, headY + 1], roles.accent);
+  }
+
   drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye);
+
+  if (recipe.genderPresentation === "feminine") {
+    setPixel(frame, size, cx, headY + headSize + 2, roles.highlight);
+  }
 
   if (recipe.features.includes("helmet")) {
     fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, 2, roles.accent);
@@ -363,10 +480,12 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
     fillTriangle(frame, size, [cx + 2, torsoY + 2], [cx + 6 + motion.wingSwing, torsoY + 4], [cx + 3, torsoY + 7], roles.secondary);
   }
 
-  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
-  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
-  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
-  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+  if (recipe.outfitStyle !== "dress") {
+    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
+    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
+    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
+    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+  }
 
   const leadHandX = mirrorX(rightShoulderX + motion.armSwingA, cx, facing);
   const leadHandY = shoulderY + 4 + Math.abs(motion.armSwingA) / 2;
