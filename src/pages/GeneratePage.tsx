@@ -105,6 +105,8 @@ export default function GeneratePage() {
         frames: data.frames,
         frameWidth,
         frameHeight,
+        logicalFrameWidth: Number(data.logicalFrameWidth) || frameWidth,
+        logicalFrameHeight: Number(data.logicalFrameHeight) || frameHeight,
       });
 
       setProgress(100);
