@@ -120,12 +120,17 @@ Make it look like a professional retro game sprite sheet. Each frame should show
         facingDirection: facing,
         imageData: generatedImageUrl,
         createdAt: new Date().toISOString(),
-      collectionIds: [],
-      tags: [],
-    };
+        collectionIds: [],
+        tags: [],
+      };
 
-    setResult(sprite);
-    setGenerating(false);
+      setResult(sprite);
+    } catch (err) {
+      console.error('Generation failed:', err);
+      setProgress(0);
+    } finally {
+      setGenerating(false);
+    }
   }, [prompt, animType, style, palette, resolution, frameCount, facing]);
 
   const handleSave = () => {
