@@ -6,135 +6,99 @@ const corsHeaders = {
 };
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const TEXT_MODEL = "google/gemini-2.5-flash";
-const MAX_PALETTE_COLORS = 16;
+const TEXT_MODEL = "google/gemini-3-flash-preview";
 const MAX_GENERATED_FRAMES = 6;
+const MAX_PALETTE_COLORS = 8;
 
-const WALK_POSES: Record<number, string[]> = {
-  4: [
-    "contact pose, left foot forward, right foot back, right arm forward, left arm back",
-    "passing pose, right knee lifting under body, arms crossing center",
-    "contact pose, right foot forward, left foot back, left arm forward, right arm back",
-    "passing pose, left knee lifting under body, arms crossing center",
-  ],
-  6: [
-    "contact pose, left heel striking ground, right leg back, right arm forward",
-    "down pose, weight settling on left leg, right foot lifting",
-    "passing pose, right leg swinging forward under body",
-    "contact pose, right heel striking ground, left leg back, left arm forward",
-    "down pose, weight settling on right leg, left foot lifting",
-    "passing pose, left leg swinging forward under body",
-  ],
+type Archetype = "humanoid" | "canine" | "slime" | "bird" | "robot" | "skeleton";
+type Accessory = "none" | "sword" | "shield" | "staff";
+type Expression = "neutral" | "cute" | "happy" | "angry";
+type Feature = "ears" | "tail" | "cape" | "helmet" | "hat" | "horns" | "spots" | "wings" | "antenna";
+type FacingDirection = "left" | "right" | "up" | "down";
+type AnimationType = "idle" | "walk" | "run" | "attack" | "jump" | "death";
+type PaletteType = "nes" | "snes" | "gameboy" | "custom";
+type SpriteStyle = "pixel-art" | "chibi" | "cel-shaded";
+
+type SpriteRecipe = {
+  archetype: Archetype;
+  palette: string[];
+  features: Feature[];
+  accessory: Accessory;
+  expression: Expression;
+  summary: string;
 };
 
-const RUN_POSES: Record<number, string[]> = {
-  4: [
-    "contact pose, left foot under body, right leg trailing, torso leaning hard forward",
-    "flight pose, both feet airborne, right knee high, left leg stretched back",
-    "contact pose, right foot under body, left leg trailing, torso leaning hard forward",
-    "flight pose, both feet airborne, left knee high, right leg stretched back",
-  ],
-  6: [
-    "contact pose, left foot lands, right leg extended back, right arm forward",
-    "compression pose, left knee bent, body dropping, right knee rising",
-    "flight pose, both feet airborne, right knee high forward, left leg back",
-    "contact pose, right foot lands, left leg extended back, left arm forward",
-    "compression pose, right knee bent, body dropping, left knee rising",
-    "flight pose, both feet airborne, left knee high forward, right leg back",
-  ],
+type MotionState = {
+  bob: number;
+  airborneLift: number;
+  torsoTilt: number;
+  armSwingA: number;
+  armSwingB: number;
+  legSwingA: number;
+  legSwingB: number;
+  headOffset: number;
+  tailSwing: number;
+  wingSwing: number;
+  squash: number;
+  stretch: number;
+  collapse: number;
 };
 
-const IDLE_POSES: Record<number, string[]> = {
-  4: [
-    "neutral relaxed stance",
-    "small inhale, chest slightly higher, tiny shoulder rise",
-    "neutral relaxed stance",
-    "small exhale, chest slightly lower, tiny shoulder drop",
-  ],
-  6: [
-    "neutral relaxed stance",
-    "slight inhale",
-    "peak inhale",
-    "begin exhale",
-    "lowest chest position",
-    "return to neutral",
-  ],
-};
-
-const ATTACK_POSES: Record<number, string[]> = {
-  4: [
-    "wind-up, attack arm pulled back, chest twisted, weight on back foot",
-    "mid swing, arm accelerating forward, shoulders rotating",
-    "impact, arm fully extended, body stretched forward",
-    "recovery, arm returning, stance stabilizing",
-  ],
-  6: [
-    "ready stance, guard up",
-    "wind-up, body coiling",
-    "release, arm firing forward",
-    "impact, full extension",
-    "follow-through, momentum carrying through",
-    "recovery, returning to ready stance",
-  ],
-};
-
-const JUMP_POSES: Record<number, string[]> = {
-  4: [
-    "anticipation crouch, knees bent low, arms down",
-    "launch, legs extending, arms thrust up",
-    "peak jump, body fully extended in air",
-    "descent, knees bending to prepare for landing",
-  ],
-  6: [
-    "anticipation crouch",
-    "launch upward",
-    "rising, legs tucked a bit",
-    "peak of jump",
-    "falling, legs extending down",
-    "landing, knees absorbing impact",
-  ],
-};
-
-const DEATH_POSES: Record<number, string[]> = {
-  4: [
-    "hit reaction, body jerking back",
-    "stumble, balance breaking to one side",
-    "falling, body nearing horizontal",
-    "collapsed, lying still on the ground",
-  ],
-  6: [
-    "hit reaction",
-    "staggering backward",
-    "losing balance sideways",
-    "falling nearly horizontal",
-    "hitting the ground",
-    "collapsed motionless",
-  ],
-};
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function normalizeFrameCount(frameCount: number): 4 | 6 {
   return frameCount <= 4 ? 4 : 6;
 }
 
-function getPosesForAnimation(animationType: string, frameCount: number): string[] {
-  const poseSets: Record<string, Record<number, string[]>> = {
-    walk: WALK_POSES,
-    run: RUN_POSES,
-    idle: IDLE_POSES,
-    attack: ATTACK_POSES,
-    jump: JUMP_POSES,
-    death: DEATH_POSES,
-  };
-
-  const set = poseSets[animationType] || poseSets.idle;
-  return set[frameCount] || set[6] || set[4];
-}
-
 function getLogicalSize(requestedSize: number): number {
   if (requestedSize <= 16) return 16;
-  if (requestedSize <= 32) return 32;
-  if (requestedSize <= 48) return 24;
+  if (requestedSize <= 32) return 24;
+  if (requestedSize <= 64) return 24;
   return 32;
+}
+
+function hex(value: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{8}$/.test(value);
+}
+
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "transparent") return "#00000000";
+  return hex(trimmed) ? trimmed.toUpperCase() : null;
+}
+
+function dedupePalette(colors: string[]) {
+  return Array.from(new Set(colors));
+}
+
+function defaultPaletteSeed(palette: PaletteType): string[] {
+  if (palette === "gameboy") {
+    return ["#00000000", "#0F380F", "#306230", "#8BAC0F", "#9BBC0F", "#E0F8CF", "#1A1A1A", "#FFFFFF"];
+  }
+  if (palette === "nes") {
+    return ["#00000000", "#0F0F1B", "#3F3F74", "#6B6B6B", "#A7A7A7", "#D9A066", "#7D3B3B", "#F4F4F4"];
+  }
+  if (palette === "snes") {
+    return ["#00000000", "#1B1C2E", "#4D2B32", "#A85D5D", "#E09F6B", "#7DB37D", "#5B6EE1", "#F7F4EA"];
+  }
+  return ["#00000000", "#1F2430", "#5C6773", "#C47C4D", "#E7B97A", "#6BA368", "#D95763", "#F5F7FA"];
+}
+
+function normalizePalette(rawPalette: unknown, paletteType: PaletteType): string[] {
+  const base = defaultPaletteSeed(paletteType);
+  const incoming = Array.isArray(rawPalette)
+    ? rawPalette.map(normalizeHexColor).filter((color): color is string => Boolean(color))
+    : [];
+
+  const merged = dedupePalette(["#00000000", ...incoming, ...base]).slice(0, MAX_PALETTE_COLORS);
+  if (merged.length < 8) {
+    return [...merged, ...base.filter((color) => !merged.includes(color))].slice(0, MAX_PALETTE_COLORS);
+  }
+  return merged;
 }
 
 function extractTextContent(message: any): string | null {
@@ -149,43 +113,6 @@ function extractTextContent(message: any): string | null {
       .trim() || null;
   }
   return null;
-}
-
-function detectTruncation(text: string): boolean {
-  const trimmed = text.trim();
-  const openBraces = (trimmed.match(/\{/g) || []).length;
-  const closeBraces = (trimmed.match(/\}/g) || []).length;
-  const openBrackets = (trimmed.match(/\[/g) || []).length;
-  const closeBrackets = (trimmed.match(/\]/g) || []).length;
-
-  if (openBraces !== closeBraces || openBrackets !== closeBrackets) return true;
-  return /\.\.\.$|…$|\[truncated\]/i.test(trimmed);
-}
-
-function extractJsonFromResponse(response: string): unknown {
-  let cleaned = response
-    .replace(/```json\s*/gi, "")
-    .replace(/```\s*/g, "")
-    .trim();
-
-  const jsonStart = cleaned.search(/[\{\[]/);
-  const jsonEnd = cleaned.lastIndexOf(jsonStart !== -1 && cleaned[jsonStart] === "[" ? "]" : "}");
-
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error("No JSON object found in response");
-  }
-
-  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
-
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    cleaned = cleaned
-      .replace(/,\s*}/g, "}")
-      .replace(/,\s*]/g, "]")
-      .replace(/[\x00-\x1F\x7F]/g, "");
-    return JSON.parse(cleaned);
-  }
 }
 
 async function callStructuredTool<T>(
@@ -209,205 +136,515 @@ async function callStructuredTool<T>(
       ],
       tools: [tool],
       tool_choice: { type: "function", function: { name: toolName } },
+      max_tokens: 1200,
     }),
   });
 
   if (!response.ok) {
     const txt = await response.text();
-    console.error(`AI API error ${response.status}:`, txt.slice(0, 500));
+    console.error(`AI API error ${response.status}:`, txt.slice(0, 400));
     if (response.status === 429) throw new Error("RATE_LIMITED");
     if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
     throw new Error(`AI gateway returned ${response.status}`);
   }
 
   const data = await response.json();
-  const choice = data.choices?.[0];
-  const toolArgs = choice?.message?.tool_calls?.[0]?.function?.arguments;
+  const toolArgs = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+  if (toolArgs) return JSON.parse(toolArgs) as T;
 
-  if (toolArgs) {
-    return JSON.parse(toolArgs) as T;
-  }
-
-  const content = extractTextContent(choice?.message);
+  const content = extractTextContent(data.choices?.[0]?.message);
   if (!content) throw new Error("AI_EMPTY_RESPONSE");
-  if (detectTruncation(content)) throw new Error("AI_TRUNCATED");
-  return extractJsonFromResponse(content) as T;
+  return JSON.parse(content) as T;
 }
 
-function normalizeHexColor(color: unknown): string | null {
-  if (typeof color !== "string") return null;
-  const trimmed = color.trim();
-  if (!trimmed) return null;
-  if (trimmed.toLowerCase() === "transparent") return "#00000000";
-  if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) return trimmed.toUpperCase();
-  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toUpperCase();
-  return null;
+function detectArchetype(prompt: string): Archetype {
+  const input = prompt.toLowerCase();
+  if (/(dog|wolf|fox|corgi|cat|lion|tiger|bear|canine|feline)/.test(input)) return "canine";
+  if (/(bird|crow|eagle|owl|chicken|duck|penguin)/.test(input)) return "bird";
+  if (/(slime|blob|goo|gel|jelly)/.test(input)) return "slime";
+  if (/(robot|mech|android|cyborg|machine)/.test(input)) return "robot";
+  if (/(skeleton|undead|bones)/.test(input)) return "skeleton";
+  return "humanoid";
 }
 
-function normalizePalette(rawPalette: unknown): string[] {
-  const unique = new Set<string>(["#00000000"]);
+function detectFeatures(prompt: string, archetype: Archetype): Feature[] {
+  const input = prompt.toLowerCase();
+  const features = new Set<Feature>();
 
-  if (Array.isArray(rawPalette)) {
-    for (const color of rawPalette) {
-      const normalized = normalizeHexColor(color);
-      if (normalized) unique.add(normalized);
-      if (unique.size >= MAX_PALETTE_COLORS) break;
-    }
-  }
+  if (/(tail|corgi|fox|wolf|cat|lion|tiger|bird)/.test(input) || archetype === "canine") features.add("tail");
+  if (/(ear|corgi|cat|fox|wolf|rabbit|bunny)/.test(input) || archetype === "canine") features.add("ears");
+  if (/(cape|cloak)/.test(input)) features.add("cape");
+  if (/(helmet|armor|armour)/.test(input)) features.add("helmet");
+  if (/(hat|wizard|witch)/.test(input)) features.add("hat");
+  if (/(horn|demon|devil)/.test(input)) features.add("horns");
+  if (/(spot|spotted|patch)/.test(input)) features.add("spots");
+  if (/(wing|angel|bat)/.test(input) || archetype === "bird") features.add("wings");
+  if (/(antenna|alien)/.test(input) || archetype === "robot") features.add("antenna");
 
-  if (unique.size < 2) {
-    unique.add("#1F2937");
-    unique.add("#F9FAFB");
-    unique.add("#F59E0B");
-  }
-
-  return Array.from(unique).slice(0, MAX_PALETTE_COLORS);
+  return Array.from(features);
 }
 
-function getAllowedDigits(paletteLength: number): string {
-  return "0123456789ABCDEF".slice(0, Math.min(MAX_PALETTE_COLORS, Math.max(2, paletteLength)));
+function detectAccessory(prompt: string): Accessory {
+  const input = prompt.toLowerCase();
+  if (/(sword|blade|katana)/.test(input)) return "sword";
+  if (/(shield|buckler)/.test(input)) return "shield";
+  if (/(staff|wand|spear)/.test(input)) return "staff";
+  return "none";
 }
 
-function sanitizeRow(row: unknown, logicalSize: number, paletteLength: number): string {
-  const allowed = getAllowedDigits(paletteLength);
-  const cleaned = String(row ?? "")
-    .toUpperCase()
-    .replace(/[^0-9A-F]/g, "")
-    .slice(0, logicalSize)
-    .padEnd(logicalSize, "0");
-
-  return cleaned
-    .split("")
-    .map((char) => (allowed.includes(char) ? char : "0"))
-    .join("");
+function detectExpression(prompt: string): Expression {
+  const input = prompt.toLowerCase();
+  if (/(cute|adorable|smile|happy|joy)/.test(input)) return "happy";
+  if (/(angry|rage|mad|fierce)/.test(input)) return "angry";
+  if (/(chibi|baby)/.test(input)) return "cute";
+  return "neutral";
 }
 
-function rowsToFrameIndices(rows: unknown, logicalSize: number, paletteLength: number): number[] {
-  const rawRows = Array.isArray(rows) ? rows : [];
-  const normalizedRows = Array.from({ length: logicalSize }, (_, index) =>
-    sanitizeRow(rawRows[index], logicalSize, paletteLength)
-  );
+function sanitizeRecipe(raw: Partial<SpriteRecipe> | null | undefined, prompt: string, paletteType: PaletteType): SpriteRecipe {
+  const fallbackArchetype = detectArchetype(prompt);
+  const rawFeatures = Array.isArray(raw?.features) ? raw?.features : [];
+  const allowedFeatures: Feature[] = ["ears", "tail", "cape", "helmet", "hat", "horns", "spots", "wings", "antenna"];
+  const features = Array.from(new Set([
+    ...detectFeatures(prompt, fallbackArchetype),
+    ...rawFeatures.filter((feature): feature is Feature => allowedFeatures.includes(feature as Feature)),
+  ]));
 
-  return normalizedRows.flatMap((row) =>
-    row.split("").map((char) => {
-      const value = parseInt(char, 16);
-      if (Number.isNaN(value)) return 0;
-      return Math.max(0, Math.min(value, paletteLength - 1));
-    })
-  );
+  const accessoryValues: Accessory[] = ["none", "sword", "shield", "staff"];
+  const expressionValues: Expression[] = ["neutral", "cute", "happy", "angry"];
+  const archetypeValues: Archetype[] = ["humanoid", "canine", "slime", "bird", "robot", "skeleton"];
+
+  return {
+    archetype: archetypeValues.includes(raw?.archetype as Archetype) ? (raw?.archetype as Archetype) : fallbackArchetype,
+    palette: normalizePalette(raw?.palette, paletteType),
+    features,
+    accessory: accessoryValues.includes(raw?.accessory as Accessory) ? (raw?.accessory as Accessory) : detectAccessory(prompt),
+    expression: expressionValues.includes(raw?.expression as Expression) ? (raw?.expression as Expression) : detectExpression(prompt),
+    summary: typeof raw?.summary === "string" && raw.summary.trim()
+      ? raw.summary.trim().slice(0, 200)
+      : prompt.trim().slice(0, 200),
+  };
 }
 
-type SpriteBlueprint = {
-  palette: string[];
-  characterSummary: string;
-  grounding: string;
-};
-
-type FrameRows = {
-  rows: string[];
-};
-
-async function generateBlueprint(
+async function generateRecipe(
   apiKey: string,
   prompt: string,
-  animationType: string,
-  styleDesc: string,
-  paletteDesc: string,
-  facingDirection: string,
-  logicalSize: number,
-): Promise<SpriteBlueprint> {
-  const blueprintTool = {
+  style: SpriteStyle,
+  paletteType: PaletteType,
+  facingDirection: FacingDirection,
+): Promise<SpriteRecipe> {
+  const tool = {
     type: "function",
     function: {
-      name: "output_sprite_blueprint",
-      description: "Create a locked sprite blueprint with a shared palette and concise design notes",
+      name: "output_sprite_recipe",
+      description: "Return a compact character recipe for a procedural pixel sprite generator",
       parameters: {
         type: "object",
         properties: {
+          archetype: { type: "string", enum: ["humanoid", "canine", "slime", "bird", "robot", "skeleton"] },
           palette: {
             type: "array",
             items: { type: "string" },
           },
-          characterSummary: { type: "string" },
-          grounding: { type: "string" },
+          features: {
+            type: "array",
+            items: { type: "string", enum: ["ears", "tail", "cape", "helmet", "hat", "horns", "spots", "wings", "antenna"] },
+          },
+          accessory: { type: "string", enum: ["none", "sword", "shield", "staff"] },
+          expression: { type: "string", enum: ["neutral", "cute", "happy", "angry"] },
+          summary: { type: "string" },
         },
-        required: ["palette", "characterSummary", "grounding"],
+        required: ["archetype", "palette", "features", "accessory", "expression", "summary"],
         additionalProperties: false,
       },
     },
   };
 
-  const blueprint = await callStructuredTool<SpriteBlueprint>(
-    apiKey,
-    "You are an expert retro pixel artist. Design one reusable sprite blueprint for an animated character. Keep it simple, readable, and suitable for a game sprite. Always use the provided tool.",
-    `Create a sprite blueprint for this character: ${prompt}.\nAnimation: ${animationType}.\nStyle: ${styleDesc}.\nPalette direction: ${paletteDesc}.\nFacing: ${facingDirection}.\nLogical drawing grid: ${logicalSize}x${logicalSize}.\n\nRules:\n- Full body visible.\n- Readable silhouette.\n- Max ${MAX_PALETTE_COLORS} colors total including transparency.\n- Palette index 0 is transparent.\n- Keep the summary concise and stable across all frames.`,
-    blueprintTool,
-    "output_sprite_blueprint",
-  );
+  try {
+    const raw = await callStructuredTool<Partial<SpriteRecipe>>(
+      apiKey,
+      "You design compact recipes for a procedural pixel sprite engine. Focus on silhouette, palette, and readable game-dev-friendly traits. Keep outputs small and practical.",
+      `Create a compact sprite recipe for: ${prompt}.\nStyle: ${style}.\nPalette family: ${paletteType}.\nFacing: ${facingDirection}.\nReturn a readable archetype, 6-8 palette colors, a few silhouette features, one optional accessory, and an expression.`,
+      tool,
+      "output_sprite_recipe",
+    );
+    return sanitizeRecipe(raw, prompt, paletteType);
+  } catch (error) {
+    console.warn("Recipe generation fell back to heuristics:", error);
+    return sanitizeRecipe(null, prompt, paletteType);
+  }
+}
 
+function createFrame(size: number): number[] {
+  return Array(size * size).fill(0);
+}
+
+function setPixel(frame: number[], size: number, x: number, y: number, color: number) {
+  if (x < 0 || y < 0 || x >= size || y >= size) return;
+  frame[y * size + x] = color;
+}
+
+function fillRect(frame: number[], size: number, x: number, y: number, w: number, h: number, color: number) {
+  for (let iy = 0; iy < h; iy++) {
+    for (let ix = 0; ix < w; ix++) setPixel(frame, size, x + ix, y + iy, color);
+  }
+}
+
+function fillEllipse(frame: number[], size: number, cx: number, cy: number, rx: number, ry: number, color: number) {
+  for (let y = -ry; y <= ry; y++) {
+    for (let x = -rx; x <= rx; x++) {
+      const nx = x / Math.max(1, rx);
+      const ny = y / Math.max(1, ry);
+      if ((nx * nx) + (ny * ny) <= 1.05) setPixel(frame, size, cx + x, cy + y, color);
+    }
+  }
+}
+
+function drawLine(frame: number[], size: number, x0: number, y0: number, x1: number, y1: number, color: number, thickness = 1) {
+  let dx = Math.abs(x1 - x0);
+  let sx = x0 < x1 ? 1 : -1;
+  let dy = -Math.abs(y1 - y0);
+  let sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+
+  while (true) {
+    for (let tx = -Math.floor(thickness / 2); tx <= Math.floor(thickness / 2); tx++) {
+      for (let ty = -Math.floor(thickness / 2); ty <= Math.floor(thickness / 2); ty++) {
+        setPixel(frame, size, x0 + tx, y0 + ty, color);
+      }
+    }
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
+function fillTriangle(frame: number[], size: number, a: [number, number], b: [number, number], c: [number, number], color: number) {
+  const minX = Math.floor(Math.min(a[0], b[0], c[0]));
+  const maxX = Math.ceil(Math.max(a[0], b[0], c[0]));
+  const minY = Math.floor(Math.min(a[1], b[1], c[1]));
+  const maxY = Math.ceil(Math.max(a[1], b[1], c[1]));
+  const area = (p1: [number, number], p2: [number, number], p3: [number, number]) => (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1]);
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const p: [number, number] = [x, y];
+      const w1 = area(p, b, c);
+      const w2 = area(a, p, c);
+      const w3 = area(a, b, p);
+      const hasNeg = w1 < 0 || w2 < 0 || w3 < 0;
+      const hasPos = w1 > 0 || w2 > 0 || w3 > 0;
+      if (!(hasNeg && hasPos)) setPixel(frame, size, x, y, color);
+    }
+  }
+}
+
+function mirrorX(x: number, center: number, facing: FacingDirection) {
+  return facing === "left" ? center - (x - center) : x;
+}
+
+function paletteRoles(palette: string[]) {
   return {
-    palette: normalizePalette(blueprint.palette),
-    characterSummary: typeof blueprint.characterSummary === "string" && blueprint.characterSummary.trim()
-      ? blueprint.characterSummary.trim().slice(0, 220)
-      : prompt.trim().slice(0, 220),
-    grounding: typeof blueprint.grounding === "string" && blueprint.grounding.trim()
-      ? blueprint.grounding.trim().slice(0, 220)
-      : "feet near a stable ground line, centered in frame, readable silhouette",
+    outline: Math.min(1, palette.length - 1),
+    primary: Math.min(2, palette.length - 1),
+    shadow: Math.min(3, palette.length - 1),
+    secondary: Math.min(4, palette.length - 1),
+    accent: Math.min(5, palette.length - 1),
+    eye: Math.min(6, palette.length - 1),
+    highlight: Math.min(7, palette.length - 1),
   };
 }
 
-async function generateFrame(
-  apiKey: string,
-  blueprint: SpriteBlueprint,
-  animationType: string,
-  facingDirection: string,
-  logicalSize: number,
-  frameIndex: number,
-  totalFrames: number,
-  pose: string,
-): Promise<number[]> {
-  const frameTool = {
-    type: "function",
-    function: {
-      name: "output_sprite_frame",
-      description: "Output a single pixel-art frame as logical rows of palette-index hex digits",
-      parameters: {
-        type: "object",
-        properties: {
-          rows: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["rows"],
-        additionalProperties: false,
-      },
-    },
-  };
+function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number): MotionState {
+  const phase = (frameIndex / frameCount) * Math.PI * 2;
+  const wave = Math.sin(phase);
+  const wave2 = Math.sin(phase + Math.PI);
 
-  const paletteLegend = blueprint.palette
-    .map((color, index) => `${index.toString(16).toUpperCase()}=${color}`)
-    .join(", ");
-  const allowedDigits = getAllowedDigits(blueprint.palette.length);
+  if (animationType === "idle") {
+    return { bob: Math.round(wave * 0.5), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5), tailSwing: Math.round(wave * 1.5), wingSwing: Math.round(wave * 1.5), squash: 0, stretch: 0, collapse: 0 };
+  }
+  if (animationType === "walk") {
+    return { bob: Math.round(Math.abs(wave) * 1), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2), armSwingB: Math.round(wave2 * 2), legSwingA: Math.round(wave * 2), legSwingB: Math.round(wave2 * 2), headOffset: 0, tailSwing: Math.round(wave * 2), wingSwing: Math.round(wave * 2), squash: 0, stretch: 0, collapse: 0 };
+  }
+  if (animationType === "run") {
+    return { bob: Math.round(Math.abs(wave) * 2), airborneLift: wave > 0.2 ? 2 : 0, torsoTilt: 1, armSwingA: Math.round(wave * 3), armSwingB: Math.round(wave2 * 3), legSwingA: Math.round(wave * 3), legSwingB: Math.round(wave2 * 3), headOffset: 0, tailSwing: Math.round(wave * 3), wingSwing: Math.round(wave * 3), squash: 0, stretch: 1, collapse: 0 };
+  }
+  if (animationType === "jump") {
+    const presets = frameCount === 4
+      ? [
+          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
+          { bob: -1, airborneLift: 2, squash: 0, stretch: 2 },
+          { bob: -2, airborneLift: 4, squash: 0, stretch: 2 },
+          { bob: 0, airborneLift: 1, squash: 1, stretch: 0 },
+        ]
+      : [
+          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
+          { bob: -1, airborneLift: 1, squash: 1, stretch: 1 },
+          { bob: -2, airborneLift: 3, squash: 0, stretch: 2 },
+          { bob: -2, airborneLift: 4, squash: 0, stretch: 2 },
+          { bob: -1, airborneLift: 2, squash: 0, stretch: 1 },
+          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
+        ];
+    const preset = presets[frameIndex] ?? presets[0];
+    return { bob: preset.bob, airborneLift: preset.airborneLift, torsoTilt: 0, armSwingA: 1, armSwingB: -1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 1, wingSwing: 3, squash: preset.squash, stretch: preset.stretch, collapse: 0 };
+  }
+  if (animationType === "attack") {
+    const presets = frameCount === 4
+      ? [
+          { torsoTilt: -1, armSwingA: -3, armSwingB: 1 },
+          { torsoTilt: 0, armSwingA: -1, armSwingB: 1 },
+          { torsoTilt: 2, armSwingA: 4, armSwingB: -1 },
+          { torsoTilt: 0, armSwingA: 1, armSwingB: 0 },
+        ]
+      : [
+          { torsoTilt: -1, armSwingA: -2, armSwingB: 1 },
+          { torsoTilt: -1, armSwingA: -4, armSwingB: 2 },
+          { torsoTilt: 0, armSwingA: -1, armSwingB: 1 },
+          { torsoTilt: 2, armSwingA: 5, armSwingB: -2 },
+          { torsoTilt: 1, armSwingA: 3, armSwingB: -1 },
+          { torsoTilt: 0, armSwingA: 0, armSwingB: 0 },
+        ];
+    const preset = presets[frameIndex] ?? presets[0];
+    return { bob: 0, airborneLift: 0, torsoTilt: preset.torsoTilt, armSwingA: preset.armSwingA, armSwingB: preset.armSwingB, legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: 1, wingSwing: 1, squash: 0, stretch: 0, collapse: 0 };
+  }
+  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8);
+  return { bob: 0, airborneLift: 0, torsoTilt: 1, armSwingA: -1, armSwingB: 1, legSwingA: -1, legSwingB: 1, headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
+}
 
-  const userPrompt = `Create frame ${frameIndex + 1} of ${totalFrames} for a looping ${animationType} sprite animation.\n\nLocked character summary: ${blueprint.characterSummary}\nLocked grounding rules: ${blueprint.grounding}\nFacing: ${facingDirection}\nPose for this frame: ${pose}\nLogical frame size: ${logicalSize}x${logicalSize}\nPalette legend: ${paletteLegend}\nAllowed digits only: ${allowedDigits}\n\nHard rules:\n- Return exactly ${logicalSize} rows.\n- Each row must be exactly ${logicalSize} characters long.\n- Use only the allowed hex digits from the palette legend.\n- Index 0 means transparent background.\n- Character must be centered and fill most of the frame height.\n- Feet should stay near a consistent ground line unless airborne.\n- Arms, legs, torso, and head must visibly change according to the pose.\n- Make this frame clearly different from the adjacent frames in the cycle.\n- Do not add any explanation text. Use the tool only.`;
+function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number) {
+  if (recipe.expression === "cute") {
+    setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
+    setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+    return;
+  }
+  if (recipe.expression === "angry") {
+    drawLine(frame, size, mirrorX(cx - 2, cx, facing), y, mirrorX(cx - 1, cx, facing), y - 1, color);
+    drawLine(frame, size, mirrorX(cx + 2, cx, facing), y - 1, mirrorX(cx + 1, cx, facing), y, color);
+    return;
+  }
+  setPixel(frame, size, mirrorX(cx - 1, cx, facing), y, color);
+  setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
+}
 
-  const attempt = async (promptOverride?: string) => {
-    const frame = await callStructuredTool<FrameRows>(
-      apiKey,
-      "You are an expert game sprite artist. Output one clean frame of pixel art as palette index rows. Always use the provided tool.",
-      promptOverride ?? userPrompt,
-      frameTool,
-      "output_sprite_frame",
-    );
-    return rowsToFrameIndices(frame.rows, logicalSize, blueprint.palette.length);
-  };
+function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, cx: number, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>) {
+  if (recipe.accessory === "none") return;
+  const dir = facing === "left" ? -1 : 1;
+  if (recipe.accessory === "sword") {
+    drawLine(frame, size, handX, handY, handX + (4 * dir), handY - 4, roles.outline);
+    drawLine(frame, size, handX, handY, handX + (3 * dir), handY - 3, roles.highlight);
+    setPixel(frame, size, handX + dir, handY, roles.accent);
+    return;
+  }
+  if (recipe.accessory === "staff") {
+    drawLine(frame, size, handX, handY + 1, handX + (1 * dir), handY - 5, roles.outline);
+    setPixel(frame, size, handX + (1 * dir), handY - 5, roles.accent);
+    return;
+  }
+  if (recipe.accessory === "shield") {
+    fillRect(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, 3, 4, roles.secondary);
+    drawLine(frame, size, handX - 1 - (dir === -1 ? 3 : 0), handY - 2, handX + 1 - (dir === -1 ? 3 : 0), handY - 2, roles.outline);
+  }
+}
 
-  const firstPass = await attempt();
-  const opaquePixels = firstPass.reduce((count, value) => count + (value !== 0 ? 1 : 0), 0);
-  if (opaquePixels > logicalSize) return firstPass;
+function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
+  const ground = size - 4 - motion.airborneLift;
+  const headSize = style === "chibi" ? 4 : 3;
+  const torsoW = style === "chibi" ? 6 : 5;
+  const torsoH = style === "chibi" ? 6 : 7;
+  const torsoY = ground - 11 + motion.bob + motion.collapse;
+  const headY = torsoY - headSize - 2 + motion.headOffset + motion.collapse;
+  const leftHipX = cx - 1;
+  const rightHipX = cx + 1;
+  const shoulderY = torsoY + 1;
+  const leftShoulderX = cx - 2;
+  const rightShoulderX = cx + 2;
 
-  return attempt(`Retry the same frame because the previous output was too empty. Keep the character large and readable.\n${userPrompt}`);
+  if (recipe.features.includes("cape")) {
+    fillTriangle(frame, size, [cx, torsoY + 1], [cx - 4, torsoY + 8], [cx + 4, torsoY + 8], roles.secondary);
+  }
+
+  fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
+  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
+  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+
+  fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, headSize * 2 + 1, roles.outline);
+  fillRect(frame, size, cx - headSize + 1, headY + 1, Math.max(1, headSize * 2 - 1), Math.max(1, headSize * 2 - 1), roles.secondary);
+  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye);
+
+  if (recipe.features.includes("helmet")) {
+    fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, 2, roles.accent);
+  }
+  if (recipe.features.includes("hat")) {
+    fillRect(frame, size, cx - headSize - 1, headY - 1, headSize * 2 + 3, 1, roles.accent);
+    fillRect(frame, size, cx - 1, headY - 3, 3, 2, roles.accent);
+  }
+  if (recipe.features.includes("horns")) {
+    fillTriangle(frame, size, [cx - 2, headY], [cx - 3, headY - 2], [cx - 1, headY], roles.accent);
+    fillTriangle(frame, size, [cx + 2, headY], [cx + 3, headY - 2], [cx + 1, headY], roles.accent);
+  }
+  if (recipe.features.includes("wings")) {
+    fillTriangle(frame, size, [cx - 2, torsoY + 2], [cx - 6 - motion.wingSwing, torsoY + 4], [cx - 3, torsoY + 7], roles.secondary);
+    fillTriangle(frame, size, [cx + 2, torsoY + 2], [cx + 6 + motion.wingSwing, torsoY + 4], [cx + 3, torsoY + 7], roles.secondary);
+  }
+
+  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
+  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
+  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
+  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+
+  const leadHandX = mirrorX(rightShoulderX + motion.armSwingA, cx, facing);
+  const leadHandY = shoulderY + 4 + Math.abs(motion.armSwingA) / 2;
+  const rearHandX = mirrorX(leftShoulderX + motion.armSwingB, cx, facing);
+  const rearHandY = shoulderY + 4 + Math.abs(motion.armSwingB) / 2;
+
+  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, 2);
+  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, 2);
+  drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary);
+  drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary);
+  drawAccessory(frame, size, recipe, cx, leadHandX, leadHandY, facing, roles);
+}
+
+function drawCanine(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2);
+  const ground = size - 4 - motion.airborneLift;
+  const dir = facing === "left" ? -1 : 1;
+  const bodyY = ground - 7 + motion.bob + motion.collapse;
+  const bodyLength = style === "chibi" ? 9 : 11;
+  const headX = cx + (dir * 5);
+  const bodyX = cx - Math.floor(bodyLength / 2);
+
+  fillEllipse(frame, size, cx, bodyY, Math.floor(bodyLength / 2), 3 - motion.squash + motion.stretch, roles.outline);
+  fillEllipse(frame, size, cx, bodyY, Math.max(2, Math.floor(bodyLength / 2) - 1), 2 - Math.min(1, motion.squash) + motion.stretch, roles.primary);
+  fillEllipse(frame, size, headX, bodyY - 2 + motion.headOffset, 3, 3, roles.outline);
+  fillEllipse(frame, size, headX, bodyY - 2 + motion.headOffset, 2, 2, roles.secondary);
+
+  if (recipe.features.includes("ears")) {
+    fillTriangle(frame, size, [headX - (dir * 1), bodyY - 4], [headX - (dir * 2), bodyY - 7], [headX, bodyY - 4], roles.outline);
+    fillTriangle(frame, size, [headX + (dir * 1), bodyY - 4], [headX + (dir * 2), bodyY - 7], [headX, bodyY - 4], roles.outline);
+    fillTriangle(frame, size, [headX - (dir * 1), bodyY - 5], [headX - (dir * 2), bodyY - 6], [headX, bodyY - 4], roles.accent);
+    fillTriangle(frame, size, [headX + (dir * 1), bodyY - 5], [headX + (dir * 2), bodyY - 6], [headX, bodyY - 4], roles.accent);
+  }
+
+  if (recipe.features.includes("tail")) {
+    drawLine(frame, size, bodyX - dir, bodyY - 1, bodyX - (dir * (3 + motion.tailSwing)), bodyY - 3 + motion.tailSwing, roles.outline, 2);
+    drawLine(frame, size, bodyX - dir, bodyY - 1, bodyX - (dir * (2 + motion.tailSwing)), bodyY - 3 + motion.tailSwing, roles.secondary);
+  }
+
+  if (recipe.features.includes("spots")) {
+    fillEllipse(frame, size, cx - dir, bodyY - 1, 1, 1, roles.accent);
+    fillEllipse(frame, size, cx + dir, bodyY + 1, 1, 1, roles.accent);
+  }
+
+  const legXs = [cx - 3, cx - 1, cx + 1, cx + 3];
+  const legSwings = [motion.legSwingA, motion.legSwingB, motion.legSwingB, motion.legSwingA];
+  legXs.forEach((legX, index) => {
+    drawLine(frame, size, legX, bodyY + 2, legX + legSwings[index], ground, roles.outline, 2);
+    drawLine(frame, size, legX, bodyY + 2, legX + legSwings[index], ground - 1, roles.primary);
+  });
+
+  drawEyes(frame, size, recipe, headX, bodyY - 2, facing, roles.eye);
+  setPixel(frame, size, headX + (dir * 2), bodyY - 1, roles.accent);
+}
+
+function drawSlime(frame: number[], size: number, recipe: SpriteRecipe, _facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2);
+  const ground = size - 4;
+  const rx = 5 + motion.squash - motion.stretch;
+  const ry = 4 - motion.squash + motion.stretch;
+  const cy = ground - 4 - motion.airborneLift;
+
+  fillEllipse(frame, size, cx, cy, rx + 1, ry + 1, roles.outline);
+  fillEllipse(frame, size, cx, cy, rx, ry, roles.primary);
+  fillEllipse(frame, size, cx - 1, cy - 1, 1, 1, roles.highlight);
+  fillEllipse(frame, size, cx + 3, cy - 2, 1, 1, roles.highlight);
+  drawEyes(frame, size, recipe, cx, cy, "right", roles.eye);
+}
+
+function drawBird(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2);
+  const ground = size - 4 - motion.airborneLift;
+  const dir = facing === "left" ? -1 : 1;
+  const bodyY = ground - 8 + motion.bob;
+  const headX = cx + (dir * 2);
+
+  fillEllipse(frame, size, cx, bodyY, 4, 5 - motion.squash + motion.stretch, roles.outline);
+  fillEllipse(frame, size, cx, bodyY, 3, 4 - motion.squash + motion.stretch, roles.primary);
+  fillEllipse(frame, size, headX, bodyY - 5, 3, 3, roles.outline);
+  fillEllipse(frame, size, headX, bodyY - 5, 2, 2, roles.secondary);
+  fillTriangle(frame, size, [headX + (dir * 3), bodyY - 5], [headX + (dir * 5), bodyY - 4], [headX + (dir * 3), bodyY - 3], roles.accent);
+  fillTriangle(frame, size, [cx, bodyY - 1], [cx - 5 - motion.wingSwing, bodyY + 1], [cx - 1, bodyY + 4], roles.secondary);
+  fillTriangle(frame, size, [cx, bodyY - 1], [cx + 5 + motion.wingSwing, bodyY + 1], [cx + 1, bodyY + 4], roles.secondary);
+  drawLine(frame, size, cx - 1, bodyY + 4, cx - 1 + motion.legSwingA, ground, roles.outline);
+  drawLine(frame, size, cx + 1, bodyY + 4, cx + 1 + motion.legSwingB, ground, roles.outline);
+  drawEyes(frame, size, recipe, headX, bodyY - 5, facing, roles.eye);
+}
+
+function drawRobot(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2);
+  const ground = size - 4 - motion.airborneLift;
+  const bodyY = ground - 11 + motion.bob + motion.collapse;
+  const headY = bodyY - 5;
+
+  fillRect(frame, size, cx - 4, bodyY, 9, 7, roles.outline);
+  fillRect(frame, size, cx - 3, bodyY + 1, 7, 5, roles.primary);
+  fillRect(frame, size, cx - 3, bodyY + 4, 7, 1, roles.shadow);
+  fillRect(frame, size, cx - 3, headY, 7, 5, roles.outline);
+  fillRect(frame, size, cx - 2, headY + 1, 5, 3, roles.secondary);
+  fillRect(frame, size, cx - 2, headY + 2, 1, 1, roles.eye);
+  fillRect(frame, size, cx + 1, headY + 2, 1, 1, roles.eye);
+
+  if (recipe.features.includes("antenna")) {
+    drawLine(frame, size, cx, headY, cx, headY - 3, roles.outline);
+    setPixel(frame, size, cx, headY - 3, roles.accent);
+  }
+
+  drawLine(frame, size, cx - 2, bodyY + 1, cx - 4 + motion.armSwingB, bodyY + 5, roles.outline, 2);
+  drawLine(frame, size, cx + 2, bodyY + 1, cx + 4 + motion.armSwingA, bodyY + 5, roles.outline, 2);
+  drawLine(frame, size, cx - 2, bodyY + 6, cx - 2 + motion.legSwingA, ground, roles.outline, 2);
+  drawLine(frame, size, cx + 2, bodyY + 6, cx + 2 + motion.legSwingB, ground, roles.outline, 2);
+  drawAccessory(frame, size, recipe, cx, mirrorX(cx + 4 + motion.armSwingA, cx, facing), bodyY + 5, facing, roles);
+}
+
+function drawSkeleton(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
+  const roles = paletteRoles(recipe.palette);
+  const cx = Math.round(size / 2);
+  const ground = size - 4 - motion.airborneLift;
+  const spineY = ground - 10 + motion.bob + motion.collapse;
+  fillEllipse(frame, size, cx, spineY - 4, 3, 3, roles.outline);
+  fillEllipse(frame, size, cx, spineY - 4, 2, 2, roles.highlight);
+  drawEyes(frame, size, recipe, cx, spineY - 4, facing, roles.eye);
+  drawLine(frame, size, cx, spineY - 1, cx, spineY + 5, roles.outline);
+  drawLine(frame, size, cx - 3, spineY + 1, cx + 3, spineY + 1, roles.outline);
+  drawLine(frame, size, cx - 1, spineY + 5, cx - 2 + motion.legSwingA, ground, roles.outline);
+  drawLine(frame, size, cx + 1, spineY + 5, cx + 2 + motion.legSwingB, ground, roles.outline);
+  drawLine(frame, size, cx - 3, spineY + 1, cx - 4 + motion.armSwingB, spineY + 5, roles.outline);
+  drawLine(frame, size, cx + 3, spineY + 1, cx + 4 + motion.armSwingA, spineY + 5, roles.outline);
+}
+
+function renderFrame(recipe: SpriteRecipe, size: number, animationType: AnimationType, frameIndex: number, frameCount: number, facing: FacingDirection, style: SpriteStyle) {
+  const frame = createFrame(size);
+  const motion = getMotionState(animationType, frameIndex, frameCount);
+
+  if (recipe.archetype === "humanoid") drawHumanoid(frame, size, recipe, facing, style, motion);
+  else if (recipe.archetype === "canine") drawCanine(frame, size, recipe, facing, style, motion);
+  else if (recipe.archetype === "slime") drawSlime(frame, size, recipe, facing, style, motion);
+  else if (recipe.archetype === "bird") drawBird(frame, size, recipe, facing, style, motion);
+  else if (recipe.archetype === "robot") drawRobot(frame, size, recipe, facing, style, motion);
+  else drawSkeleton(frame, size, recipe, facing, style, motion);
+
+  return frame;
 }
 
 serve(async (req) => {
@@ -428,55 +665,23 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const requestedSize = parseInt(resolution);
-    const outputSize = Number.isFinite(requestedSize) ? requestedSize : 32;
+    const outputSize = parseInt(resolution);
     const logicalSize = getLogicalSize(outputSize);
     const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
-    const styleDesc = style === "pixel-art" ? "retro pixel art" : style === "chibi" ? "cute chibi pixel art" : "clean cel-shaded pixel art";
-    const paletteDesc = palette === "nes"
-      ? "limited retro console colors"
-      : palette === "snes"
-      ? "richer 16-bit console colors"
-      : palette === "gameboy"
-      ? "4-shade handheld green palette"
-      : "cohesive vibrant game palette";
-    const poses = getPosesForAnimation(animationType, totalFrames);
+    const recipe = await generateRecipe(LOVABLE_API_KEY, String(prompt), style as SpriteStyle, palette as PaletteType, facingDirection as FacingDirection);
 
-    console.log(`Generating ${totalFrames}-frame ${animationType} animation at ${outputSize}x${outputSize} using logical ${logicalSize}x${logicalSize} frames...`);
-
-    const blueprint = await generateBlueprint(
-      LOVABLE_API_KEY,
-      prompt.trim(),
-      animationType,
-      styleDesc,
-      paletteDesc,
-      facingDirection,
-      logicalSize,
+    const frames = Array.from({ length: totalFrames }, (_, index) =>
+      renderFrame(recipe, logicalSize, animationType as AnimationType, index, totalFrames, facingDirection as FacingDirection, style as SpriteStyle)
     );
 
-    const frames: number[][] = [];
-    for (let index = 0; index < poses.length; index++) {
-      const frame = await generateFrame(
-        LOVABLE_API_KEY,
-        blueprint,
-        animationType,
-        facingDirection,
-        logicalSize,
-        index,
-        poses.length,
-        poses[index],
-      );
-      frames.push(frame);
-    }
-
-    console.log(`Generated ${frames.length} frames with ${blueprint.palette.length}-color palette`);
+    console.log(`Generated ${frames.length} procedural ${recipe.archetype} frames for: ${recipe.summary}`);
 
     return new Response(
       JSON.stringify({
         type: "pixel-data",
-        palette: blueprint.palette,
+        palette: recipe.palette,
         frames,
-        frameCount: frames.length,
+        frameCount: totalFrames,
         frameWidth: outputSize,
         frameHeight: outputSize,
         logicalFrameWidth: logicalSize,
@@ -486,26 +691,20 @@ serve(async (req) => {
     );
   } catch (e) {
     console.error("generate-sprite error:", e);
-
     const msg = e instanceof Error ? e.message : "Unknown error";
     let status = 500;
-    let userMsg = msg;
+    if (msg === "RATE_LIMITED") status = 429;
+    if (msg === "CREDITS_EXHAUSTED") status = 402;
 
-    if (msg === "RATE_LIMITED") {
-      status = 429;
-      userMsg = "Rate limited. Please try again in a moment.";
-    } else if (msg === "CREDITS_EXHAUSTED") {
-      status = 402;
-      userMsg = "AI credits exhausted. Add funds in Settings > Workspace > Usage.";
-    } else if (msg === "AI_TRUNCATED") {
-      userMsg = "The AI response was truncated. Try again with a smaller sprite size or simpler prompt.";
-    } else if (msg === "AI_EMPTY_RESPONSE") {
-      userMsg = "The AI returned an empty response. Please try again.";
-    }
-
-    return new Response(JSON.stringify({ error: userMsg }), {
-      status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: msg === "RATE_LIMITED"
+          ? "Rate limited. Please try again in a moment."
+          : msg === "CREDITS_EXHAUSTED"
+          ? "AI credits exhausted. Add funds in Settings > Workspace > Usage."
+          : "Sprite generation failed. Please try a different prompt.",
+      }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
