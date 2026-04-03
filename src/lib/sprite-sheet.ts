@@ -168,6 +168,22 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, x: number, frameW: numbe
   ctx.fillText(label, x + frameW / 2, frameH / 2);
 }
 
+function mergeBounds(boundsList: Bounds[]): Bounds {
+  const left = Math.min(...boundsList.map((bounds) => bounds.left));
+  const top = Math.min(...boundsList.map((bounds) => bounds.top));
+  const right = Math.max(...boundsList.map((bounds) => bounds.right));
+  const bottom = Math.max(...boundsList.map((bounds) => bounds.bottom));
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left + 1,
+    height: bottom - top + 1,
+  };
+}
+
 export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: number): Promise<string> {
   const images = await Promise.all(
     frameSrcs.map(async (src) => {
@@ -180,16 +196,20 @@ export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: 
     })
   );
 
-  const validBounds = images.flatMap((frame) => (frame ? [frame.bounds] : []));
-  const maxWidth = validBounds.length ? Math.max(...validBounds.map((bounds) => bounds.width)) : frameW;
-  const maxHeight = validBounds.length ? Math.max(...validBounds.map((bounds) => bounds.height)) : frameH;
+  const validFrames = images.filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
+  const sharedBounds = validFrames.length ? mergeBounds(validFrames.map((frame) => frame.bounds)) : null;
 
+  const cropWidth = sharedBounds?.width ?? frameW;
+  const cropHeight = sharedBounds?.height ?? frameH;
   const padX = Math.max(1, Math.round(frameW * 0.1));
   const padTop = Math.max(1, Math.round(frameH * 0.06));
   const padBottom = Math.max(1, Math.round(frameH * 0.08));
   const availableWidth = Math.max(1, frameW - padX * 2);
   const availableHeight = Math.max(1, frameH - padTop - padBottom);
-  const uniformScale = Math.min(availableWidth / maxWidth, availableHeight / maxHeight);
+  const uniformScale = Math.min(availableWidth / cropWidth, availableHeight / cropHeight);
+  const drawWidth = Math.max(1, Math.round(cropWidth * uniformScale));
+  const drawHeight = Math.max(1, Math.round(cropHeight * uniformScale));
+  const drawY = Math.round(frameH - padBottom - drawHeight);
 
   const canvas = document.createElement('canvas');
   canvas.width = frameW * frameSrcs.length;
@@ -203,23 +223,19 @@ export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: 
   images.forEach((frame, index) => {
     const frameX = index * frameW;
 
-    if (!frame) {
+    if (!frame || !sharedBounds) {
       drawPlaceholder(ctx, frameX, frameW, frameH, `${index + 1}`);
       return;
     }
 
-    const { image, bounds } = frame;
-    const drawWidth = Math.max(1, Math.round(bounds.width * uniformScale));
-    const drawHeight = Math.max(1, Math.round(bounds.height * uniformScale));
     const drawX = frameX + Math.round((frameW - drawWidth) / 2);
-    const drawY = Math.round(frameH - padBottom - drawHeight);
 
     ctx.drawImage(
-      image,
-      bounds.left,
-      bounds.top,
-      bounds.width,
-      bounds.height,
+      frame.image,
+      sharedBounds.left,
+      sharedBounds.top,
+      sharedBounds.width,
+      sharedBounds.height,
       drawX,
       drawY,
       drawWidth,
