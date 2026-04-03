@@ -65,6 +65,7 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
 
   const data = await response.json();
   const message = data.choices?.[0]?.message;
+  const refusal = message?.refusal;
 
   // Log response structure for debugging
   const finishReason = data.choices?.[0]?.finish_reason;
@@ -72,6 +73,8 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
     messageKeys: message ? Object.keys(message) : [],
     hasImages: !!message?.images,
     imagesLen: message?.images?.length,
+    hasRefusal: !!refusal,
+    refusalPreview: typeof refusal === "string" ? refusal.slice(0, 160) : null,
     contentType: typeof message?.content,
     contentIsArray: Array.isArray(message?.content),
     finishReason,
@@ -91,6 +94,10 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
   if (!url && Array.isArray(message?.content)) {
     const img = message.content.find((p: any) => p.type === "image_url" || p.type === "image");
     url = img?.image_url?.url || img?.url;
+  }
+
+  if (!url && refusal) {
+    throw new Error("PROMPT_REJECTED");
   }
 
   return url || null;
@@ -176,7 +183,7 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
     }
 
     if (!baseImage) {
-      throw new Error("Failed to generate base character. Try a different description.");
+      throw new Error("NO_IMAGE_RETURNED");
     }
     console.log("Base character generated successfully");
 
@@ -238,6 +245,7 @@ Do not redesign the character, do not add new details, and do not create a sprit
     let status = 500;
     if (msg === "RATE_LIMITED") status = 429;
     if (msg === "CREDITS_EXHAUSTED") status = 402;
+    if (msg === "PROMPT_REJECTED" || msg === "NO_IMAGE_RETURNED") status = 400;
 
     return new Response(
       JSON.stringify({
@@ -245,6 +253,10 @@ Do not redesign the character, do not add new details, and do not create a sprit
           ? "Rate limited. Please try again in a moment."
           : msg === "CREDITS_EXHAUSTED"
           ? "AI credits exhausted. Add funds in Settings > Workspace > Usage."
+          : msg === "PROMPT_REJECTED"
+          ? "That prompt was blocked by the image model. Try a simpler, non-explicit character description."
+          : msg === "NO_IMAGE_RETURNED"
+          ? "The image model could not create this sprite. Try a simpler, non-explicit description."
           : msg,
       }),
       { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
