@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { useSprites } from '@/hooks/use-sprites';
+import { supabase } from '@/integrations/supabase/client';
 import { Sparkles, Loader2, Download, Copy } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import type { AnimationType, SpriteStyle, PaletteType, Resolution, FacingDirection, SpriteSheet } from '@/types/sprite';
 
 const ANIM_TYPES: { value: AnimationType; label: string }[] = [
@@ -60,48 +61,35 @@ export default function GeneratePage() {
     setResult(null);
 
     const fw = parseInt(resolution);
-    const paletteDesc = palette === 'nes' ? 'NES 54-color palette' : palette === 'snes' ? 'SNES 256-color palette' : palette === 'gameboy' ? 'Game Boy 4-shade green palette' : 'vibrant custom palette';
-    const styleDesc = style === 'pixel-art' ? 'pixel art' : style === 'chibi' ? 'chibi style' : 'cel-shaded';
 
-    const aiPrompt = `Create a ${styleDesc} sprite sheet for a game character: ${prompt}. 
-The sprite sheet should show a "${animType}" animation with exactly ${frameCount} frames arranged in a single horizontal row.
-Each frame is ${fw}x${fw} pixels. The total image should be ${fw * frameCount}x${fw} pixels.
-Use a ${paletteDesc}. The character should face ${facing}.
-The background of each frame should be transparent or a single solid dark color.
-Make it look like a professional retro game sprite sheet. Each frame should show a slightly different pose for the ${animType} animation cycle.`;
+    // Progress animation
+    let progressVal = 0;
+    const progressInterval = setInterval(() => {
+      progressVal = Math.min(progressVal + 1, 90);
+      setProgress(progressVal);
+    }, 300);
 
     try {
-      // Start progress animation
-      let progressVal = 0;
-      const progressInterval = setInterval(() => {
-        progressVal = Math.min(progressVal + 2, 90);
-        setProgress(progressVal);
-      }, 200);
-
-      const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_LOVABLE_API_KEY}`,
-          'Content-Type': 'application/json',
+      const { data, error } = await supabase.functions.invoke('generate-sprite', {
+        body: {
+          prompt,
+          animationType: animType,
+          style,
+          palette,
+          resolution,
+          frameCount,
+          facingDirection: facing,
         },
-        body: JSON.stringify({
-          model: 'google/gemini-2.5-flash-image',
-          messages: [{ role: 'user', content: aiPrompt }],
-          modalities: ['image', 'text'],
-        }),
       });
 
       clearInterval(progressInterval);
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (error) {
+        throw new Error(error.message || 'Generation failed');
       }
 
-      const data = await response.json();
-      const generatedImageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-
-      if (!generatedImageUrl) {
-        throw new Error('No image returned from API');
+      if (!data?.imageData) {
+        throw new Error('No image returned');
       }
 
       setProgress(100);
@@ -118,15 +106,20 @@ Make it look like a professional retro game sprite sheet. Each frame should show
         frameWidth: fw,
         frameHeight: fw,
         facingDirection: facing,
-        imageData: generatedImageUrl,
+        imageData: data.imageData,
         createdAt: new Date().toISOString(),
         collectionIds: [],
         tags: [],
       };
 
       setResult(sprite);
-    } catch (err) {
+    } catch (err: any) {
+      clearInterval(progressInterval);
       console.error('Generation failed:', err);
+      toast({
+        title: 'Generation failed',
+        description: err?.message || 'Something went wrong. Try again.',
+      });
       setProgress(0);
     } finally {
       setGenerating(false);
@@ -136,6 +129,7 @@ Make it look like a professional retro game sprite sheet. Each frame should show
   const handleSave = () => {
     if (result) {
       addSprite(result);
+      toast({ title: '✓ Saved to library' });
       setResult(null);
       setPrompt('');
     }
@@ -233,7 +227,7 @@ Make it look like a professional retro game sprite sheet. Each frame should show
           {generating && (
             <div className="space-y-1">
               <Progress value={progress} className="h-2" />
-              <p className="text-[10px] text-muted-foreground text-center">{progress}% — Processing frames...</p>
+              <p className="text-[10px] text-muted-foreground text-center">{progress}% — AI is creating your sprite...</p>
             </div>
           )}
         </div>
@@ -266,7 +260,7 @@ Make it look like a professional retro game sprite sheet. Each frame should show
                 <Sparkles className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">Enter a prompt and click Generate</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">Your sprite preview will appear here</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">AI will create your sprite sheet</p>
             </div>
           )}
         </div>
