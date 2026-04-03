@@ -39,8 +39,15 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     const ctx = canvas.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
 
-    const w = frameWidth * zoom;
-    const h = frameHeight * zoom;
+    // The sprite sheet is a single horizontal strip from the AI.
+    // Derive actual frame dimensions from the image itself.
+    const imgW = img.naturalWidth || img.width;
+    const imgH = img.naturalHeight || img.height;
+    const actualFrameW = Math.round(imgW / frameCount);
+    const actualFrameH = imgH;
+
+    const w = actualFrameW * zoom;
+    const h = actualFrameH * zoom;
     canvas.width = w;
     canvas.height = h;
 
@@ -58,7 +65,7 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
 
     ctx.drawImage(
       img,
-      frame * frameWidth, 0, frameWidth, frameHeight,
+      frame * actualFrameW, 0, actualFrameW, actualFrameH,
       0, 0, w, h
     );
 
