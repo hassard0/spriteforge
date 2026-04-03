@@ -164,27 +164,31 @@ function fillEllipse(frame: number[], size: number, cx: number, cy: number, rx: 
 }
 
 function drawLine(frame: number[], size: number, x0: number, y0: number, x1: number, y1: number, color: number, thickness = 1) {
-  let dx = Math.abs(x1 - x0);
-  let sx = x0 < x1 ? 1 : -1;
-  let dy = -Math.abs(y1 - y0);
-  let sy = y0 < y1 ? 1 : -1;
+  let startX = Math.round(x0);
+  let startY = Math.round(y0);
+  const endX = Math.round(x1);
+  const endY = Math.round(y1);
+  const dx = Math.abs(endX - startX);
+  const sx = startX < endX ? 1 : -1;
+  const dy = -Math.abs(endY - startY);
+  const sy = startY < endY ? 1 : -1;
   let err = dx + dy;
 
   while (true) {
     for (let tx = -Math.floor(thickness / 2); tx <= Math.floor(thickness / 2); tx++) {
       for (let ty = -Math.floor(thickness / 2); ty <= Math.floor(thickness / 2); ty++) {
-        setPixel(frame, size, x0 + tx, y0 + ty, color);
+        setPixel(frame, size, startX + tx, startY + ty, color);
       }
     }
-    if (x0 === x1 && y0 === y1) break;
+    if (startX === endX && startY === endY) break;
     const e2 = 2 * err;
     if (e2 >= dy) {
       err += dy;
-      x0 += sx;
+      startX += sx;
     }
     if (e2 <= dx) {
       err += dx;
-      y0 += sy;
+      startY += sy;
     }
   }
 }
