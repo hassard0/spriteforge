@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
@@ -13,7 +13,10 @@ interface Props {
   className?: string;
 }
 
-export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHeight, className = '' }: Props) {
+export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function SpritePreviewPlayer(
+  { imageData, frameCount, frameWidth, frameHeight, className = '' },
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const animRef = useRef<number>(0);
@@ -36,15 +39,14 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     const img = imgRef.current;
     if (!canvas || !img || !img.complete) return;
 
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
-    // The sprite sheet is a single horizontal strip from the AI.
-    // Derive actual frame dimensions from the image itself.
     const imgW = img.naturalWidth || img.width;
     const imgH = img.naturalHeight || img.height;
-    const actualFrameW = Math.round(imgW / frameCount);
-    const actualFrameH = imgH;
+    const actualFrameW = Math.max(1, Math.round(imgW / Math.max(1, frameCount)));
+    const actualFrameH = Math.max(1, imgH);
 
     const w = actualFrameW * zoom;
     const h = actualFrameH * zoom;
@@ -53,20 +55,25 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
 
     ctx.clearRect(0, 0, w, h);
 
-    // Checkerboard background
     const checkSize = Math.max(4, zoom * 2);
     for (let y = 0; y < h; y += checkSize) {
       for (let x = 0; x < w; x += checkSize) {
         const isLight = ((x / checkSize) + (y / checkSize)) % 2 === 0;
-        ctx.fillStyle = isLight ? 'hsl(220, 15%, 14%)' : 'hsl(220, 15%, 11%)';
+        ctx.fillStyle = isLight ? 'hsl(220 15% 14%)' : 'hsl(220 15% 11%)';
         ctx.fillRect(x, y, checkSize, checkSize);
       }
     }
 
     ctx.drawImage(
       img,
-      frame * actualFrameW, 0, actualFrameW, actualFrameH,
-      0, 0, w, h
+      frame * actualFrameW,
+      0,
+      actualFrameW,
+      actualFrameH,
+      0,
+      0,
+      w,
+      h,
     );
 
     if (showGrid) {
@@ -85,9 +92,8 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
         ctx.stroke();
       }
     }
-  }, [frameWidth, frameHeight, zoom, showGrid]);
+  }, [frameCount, zoom, showGrid]);
 
-  // Load image
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
@@ -99,7 +105,6 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     img.src = imageData;
   }, [imageData, drawFrame]);
 
-  // Animation loop
   useEffect(() => {
     if (!playing) {
       drawFrame(currentFrame);
@@ -114,7 +119,7 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
 
       if (time - lastTimeRef.current >= interval) {
         lastTimeRef.current = time;
-        const nextFrame = (currentFrameRef.current + 1) % frameCount;
+        const nextFrame = (currentFrameRef.current + 1) % Math.max(1, frameCount);
         if (nextFrame === 0 && !loop) {
           setPlaying(false);
           return;
@@ -130,7 +135,6 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
     return () => cancelAnimationFrame(animRef.current);
   }, [playing, fps, frameCount, loop, drawFrame]);
 
-  // Draw when frame changes externally
   useEffect(() => {
     if (!playing) drawFrame(currentFrame);
   }, [currentFrame, playing, drawFrame]);
@@ -145,8 +149,7 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
   };
 
   return (
-    <div className={`flex flex-col gap-3 ${className}`}>
-      {/* Canvas */}
+    <div ref={ref} className={`flex flex-col gap-3 ${className}`}>
       <div className="flex items-center justify-center p-4 bg-card rounded-lg pixel-border-accent overflow-hidden">
         <canvas
           ref={canvasRef}
@@ -155,53 +158,56 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
         />
       </div>
 
-      {/* Frame counter */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>Frame <span className="text-primary font-bold">{currentFrame + 1}</span> / {frameCount}</span>
         <span>{frameWidth}×{frameHeight}px @ {fps}fps</span>
       </div>
 
-      {/* Transport controls */}
       <div className="flex items-center gap-1 justify-center">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(-1)}>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(-1)}>
           <SkipBack className="h-3.5 w-3.5" />
         </Button>
         <Button
-          variant="ghost" size="icon"
+          type="button"
+          variant="ghost"
+          size="icon"
           className="h-9 w-9 text-primary hover:text-primary"
           onClick={() => setPlaying(!playing)}
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(1)}>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(1)}>
           <SkipForward className="h-3.5 w-3.5" />
         </Button>
         <div className="w-px h-5 bg-border mx-1" />
         <Button
+          type="button"
           variant={loop ? 'secondary' : 'ghost'}
-          size="icon" className="h-8 w-8"
+          size="icon"
+          className="h-8 w-8"
           onClick={() => setLoop(!loop)}
         >
           <Repeat className="h-3.5 w-3.5" />
         </Button>
         <Button
+          type="button"
           variant={showGrid ? 'secondary' : 'ghost'}
-          size="icon" className="h-8 w-8"
+          size="icon"
+          className="h-8 w-8"
           onClick={() => setShowGrid(!showGrid)}
         >
           <Grid3X3 className="h-3.5 w-3.5" />
         </Button>
         <div className="w-px h-5 bg-border mx-1" />
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoom(z => Math.max(1, z - 1))}>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoom(z => Math.max(1, z - 1))}>
           <ZoomOut className="h-3.5 w-3.5" />
         </Button>
         <span className="text-xs text-muted-foreground w-8 text-center">{zoom}×</span>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoom(z => Math.min(12, z + 1))}>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoom(z => Math.min(12, z + 1))}>
           <ZoomIn className="h-3.5 w-3.5" />
         </Button>
       </div>
 
-      {/* Speed slider */}
       <div className="flex items-center gap-3 px-2">
         <span className="text-[10px] text-muted-foreground w-10">Speed</span>
         <Slider
@@ -215,11 +221,11 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
         <span className="text-[10px] text-muted-foreground w-12 text-right">{fps} FPS</span>
       </div>
 
-      {/* Frame strip */}
       <div className="flex gap-1 overflow-x-auto pb-1">
         {Array.from({ length: frameCount }, (_, i) => (
           <button
             key={i}
+            type="button"
             onClick={() => { setPlaying(false); currentFrameRef.current = i; setCurrentFrame(i); }}
             className={`flex-shrink-0 w-8 h-8 rounded text-[10px] font-bold transition-colors ${
               i === currentFrame
@@ -233,4 +239,4 @@ export function SpritePreviewPlayer({ imageData, frameCount, frameWidth, frameHe
       </div>
     </div>
   );
-}
+});

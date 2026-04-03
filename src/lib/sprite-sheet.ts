@@ -7,12 +7,13 @@ export interface PixelSpriteData {
   frames: number[][];
   frameWidth: number;
   frameHeight: number;
+  logicalFrameWidth?: number;
+  logicalFrameHeight?: number;
 }
 
-/** Parse a hex color string to [r, g, b, a] */
 function parseHex(hex: string): [number, number, number, number] {
-  if (hex === "transparent" || hex === "#00000000") return [0, 0, 0, 0];
-  const clean = hex.replace("#", "");
+  if (hex === 'transparent' || hex === '#00000000') return [0, 0, 0, 0];
+  const clean = hex.replace('#', '');
   if (clean.length === 8) {
     return [
       parseInt(clean.slice(0, 2), 16),
@@ -40,7 +41,6 @@ function parseHex(hex: string): [number, number, number, number] {
   return [0, 0, 0, 0];
 }
 
-/** Render a single frame's pixel indices to ImageData */
 function renderFrame(
   palette: [number, number, number, number][],
   indices: number[],
@@ -64,31 +64,53 @@ function renderFrame(
   return imageData;
 }
 
-/** Build a horizontal sprite sheet from pixel data and return a PNG data URL */
 export function renderPixelSpriteSheet(spriteData: PixelSpriteData): string {
-  const { palette: hexPalette, frames, frameWidth, frameHeight } = spriteData;
+  const {
+    palette: hexPalette,
+    frames,
+    frameWidth,
+    frameHeight,
+    logicalFrameWidth = frameWidth,
+    logicalFrameHeight = frameHeight,
+  } = spriteData;
 
-  // Parse palette once
   const palette = hexPalette.map(parseHex);
-
-  const canvas = document.createElement("canvas");
+  const canvas = document.createElement('canvas');
   canvas.width = frameWidth * frames.length;
   canvas.height = frameHeight;
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not create canvas context");
-
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create canvas context');
   ctx.imageSmoothingEnabled = false;
 
+  const frameCanvas = document.createElement('canvas');
+  frameCanvas.width = logicalFrameWidth;
+  frameCanvas.height = logicalFrameHeight;
+  const frameCtx = frameCanvas.getContext('2d');
+  if (!frameCtx) throw new Error('Could not create frame canvas context');
+  frameCtx.imageSmoothingEnabled = false;
+
   frames.forEach((indices, frameIndex) => {
-    const frameImageData = renderFrame(palette, indices, frameWidth, frameHeight);
-    ctx.putImageData(frameImageData, frameIndex * frameWidth, 0);
+    const frameImageData = renderFrame(palette, indices, logicalFrameWidth, logicalFrameHeight);
+    frameCtx.clearRect(0, 0, logicalFrameWidth, logicalFrameHeight);
+    frameCtx.putImageData(frameImageData, 0, 0);
+
+    ctx.drawImage(
+      frameCanvas,
+      0,
+      0,
+      logicalFrameWidth,
+      logicalFrameHeight,
+      frameIndex * frameWidth,
+      0,
+      frameWidth,
+      frameHeight,
+    );
   });
 
-  return canvas.toDataURL("image/png");
+  return canvas.toDataURL('image/png');
 }
 
-// Legacy stitchFrames kept for backwards compatibility with mock sprites
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -106,27 +128,27 @@ export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: 
       } catch {
         return null;
       }
-    })
+    }),
   );
 
-  const canvas = document.createElement("canvas");
+  const canvas = document.createElement('canvas');
   canvas.width = frameW * frameSrcs.length;
   canvas.height = frameH;
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not create sprite sheet canvas");
-
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create sprite sheet canvas');
   ctx.imageSmoothingEnabled = false;
 
   images.forEach((img, index) => {
     const frameX = index * frameW;
     if (!img) {
-      ctx.fillStyle = "hsl(220 15% 14%)";
+      ctx.fillStyle = 'hsl(220 15% 14%)';
       ctx.fillRect(frameX, 0, frameW, frameH);
       return;
     }
+
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, frameX, 0, frameW, frameH);
   });
 
-  return canvas.toDataURL("image/png");
+  return canvas.toDataURL('image/png');
 }
