@@ -6,43 +6,44 @@ const corsHeaders = {
 };
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MAX_GENERATED_FRAMES = 6;
 const TEXT_MODEL = "google/gemini-3-flash-preview";
-const IMAGE_MODEL = "google/gemini-2.5-flash-image";
+const BASE_IMAGE_MODEL = "google/gemini-2.5-flash-image";
+const FRAME_IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
+const MAX_GENERATED_FRAMES = 6;
 
 // ── Pose descriptions per animation type ──
 
 const WALK_POSES: Record<number, string[]> = {
   4: [
-    "left foot forward on ground, right foot back, right arm forward, left arm back",
-    "feet passing under body, weight centered, arms at sides",
-    "right foot forward on ground, left foot back, left arm forward, right arm back",
-    "feet passing under body, weight centered, arms at sides, opposite of frame 2",
+    "contact pose — left heel planted forward, right toe pushing off behind, right arm swung forward, left arm swung back, hips rotated",
+    "passing pose — right knee lifted under the body, left leg supporting the weight, arms crossing the torso centerline, shoulders counter-rotated",
+    "contact pose — right heel planted forward, left toe pushing off behind, left arm swung forward, right arm swung back, hips rotated opposite",
+    "passing pose — left knee lifted under the body, right leg supporting the weight, arms crossing the torso centerline, shoulders counter-rotated opposite",
   ],
   6: [
-    "left heel strikes ground ahead, right leg pushes off behind, right arm swings forward, left arm back",
-    "weight drops onto left leg, right foot lifts off ground, arms passing center",
-    "right leg swings forward past left, left leg straight, arms reversed mid-swing",
-    "right heel strikes ground ahead, left leg pushes off behind, left arm swings forward, right arm back",
-    "weight drops onto right leg, left foot lifts off ground, arms passing center",
-    "left leg swings forward past right, right leg straight, arms reversed mid-swing",
+    "contact pose — left heel strikes ground forward, right leg extended back on toe, right arm forward, left arm back, torso leaning slightly into motion",
+    "down pose — weight settles onto the left leg, left knee bends, right foot peeling off the ground, arms passing through center",
+    "passing pose — right thigh swings forward under the torso, left leg straight beneath body, elbows bent, shoulders twisted opposite the hips",
+    "contact pose — right heel strikes ground forward, left leg extended back on toe, left arm forward, right arm back, torso leaning slightly into motion",
+    "down pose — weight settles onto the right leg, right knee bends, left foot peeling off the ground, arms passing through center",
+    "passing pose — left thigh swings forward under the torso, right leg straight beneath body, elbows bent, shoulders twisted opposite the hips",
   ],
 };
 
 const RUN_POSES: Record<number, string[]> = {
   4: [
-    "left foot on ground, right knee driven up high, right arm forward, left arm back, torso leaning forward",
-    "both feet off ground in flight, right leg forward, left leg trailing behind, arms wide",
-    "right foot on ground, left knee driven up high, left arm forward, right arm back, torso leaning forward",
-    "both feet off ground in flight, left leg forward, right leg trailing behind, arms wide",
+    "contact pose — left foot striking under the body, right leg trailing long behind, right arm punching forward, left arm driving back, torso pitched forward aggressively",
+    "flight pose — both feet fully airborne, right knee high in front, left leg stretched behind, elbows bent sharply, body lifted off the ground",
+    "contact pose — right foot striking under the body, left leg trailing long behind, left arm punching forward, right arm driving back, torso pitched forward aggressively",
+    "flight pose — both feet fully airborne, left knee high in front, right leg stretched behind, elbows bent sharply, body lifted off the ground",
   ],
   6: [
-    "left foot strikes ground, right leg fully extended behind, right arm pumped forward to face, left arm back, torso leaned forward",
-    "left leg compressed absorbing impact, right knee driving upward, arms switching sides",
-    "both feet airborne, right knee high in front, left leg stretched behind, classic sprint silhouette",
-    "right foot strikes ground, left leg fully extended behind, left arm pumped forward to face, right arm back, torso leaned forward",
-    "right leg compressed absorbing impact, left knee driving upward, arms switching sides",
-    "both feet airborne, left knee high in front, right leg stretched behind, classic sprint silhouette",
+    "contact pose — left foot hits the ground beneath the hips, right leg fully extended behind, right arm driven forward near the face, left arm thrown back, torso steeply leaned forward",
+    "compression pose — left knee bends under body weight, right knee surges upward, pelvis drops slightly, elbows reversing with force, cheeks and torso showing heavy momentum",
+    "flight pose — both feet completely off the ground, right knee high and forward, left leg stretched behind, chest lifted slightly, sweat trailing backward",
+    "contact pose — right foot hits the ground beneath the hips, left leg fully extended behind, left arm driven forward near the face, right arm thrown back, torso steeply leaned forward",
+    "compression pose — right knee bends under body weight, left knee surges upward, pelvis drops slightly, elbows reversing with force, cheeks and torso showing heavy momentum",
+    "flight pose — both feet completely off the ground, left knee high and forward, right leg stretched behind, chest lifted slightly, sweat trailing backward",
   ],
 };
 
@@ -120,10 +121,11 @@ function getPosesForAnimation(animationType: string, frameCount: number): string
     attack: ATTACK_POSES, jump: JUMP_POSES, death: DEATH_POSES,
   };
   const set = poseSets[animationType] || poseSets.idle;
-  // Use the closest available frame count
-  if (set[frameCount]) return set[frameCount];
-  const available = Object.keys(set).map(Number).sort((a, b) => Math.abs(a - frameCount) - Math.abs(b - frameCount));
-  return set[available[0]];
+  return set[frameCount] || set[6] || set[4];
+}
+
+function normalizeFrameCount(frameCount: number): 4 | 6 {
+  return frameCount <= 4 ? 4 : 6;
 }
 
 // ── Helpers ──
@@ -156,7 +158,7 @@ function extractImageUrl(message: any): string | null {
   return url || null;
 }
 
-async function callImageModel(apiKey: string, prompt: string, referenceImages: string[] = [], model = IMAGE_MODEL): Promise<string | null> {
+async function callImageModel(apiKey: string, prompt: string, referenceImages: string[] = [], model = BASE_IMAGE_MODEL): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
   for (const ref of referenceImages.filter(Boolean)) {
     content.push({ type: "image_url", image_url: { url: ref } });
@@ -220,41 +222,151 @@ async function simplifySpritePrompt(apiKey: string, prompt: string, animationTyp
   return rewritten && rewritten !== prompt ? rewritten : null;
 }
 
-// ── Main prompt builder: generates ALL frames as a single horizontal sprite sheet ──
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-function buildSpriteSheetPrompt(
+function buildBaseCharacterPrompt(
   characterPrompt: string,
-  animationType: string,
   styleDesc: string,
   paletteDesc: string,
   facingDirection: string,
-  frameCount: number,
-  poses: string[],
 ): string {
-  const poseList = poses.map((pose, i) => `  Frame ${i + 1}: ${pose}`).join("\n");
-
-  return `Create a horizontal sprite sheet image containing exactly ${frameCount} animation frames arranged left to right in a single row.
+  return `Create one full-body character sprite on a plain solid-color background.
 
 Character: ${characterPrompt}
 Style: ${styleDesc}
 Colors: ${paletteDesc}
 Facing: ${facingDirection}
-Animation: ${animationType} cycle
-
-Each frame must show the SAME character in a DIFFERENT pose. The poses must progress through the ${animationType} animation cycle like this:
-${poseList}
 
 CRITICAL RULES:
-- Draw exactly ${frameCount} frames side by side in one horizontal strip.
-- Each frame must show clearly different arm and leg positions from the frame next to it.
-- The character design, outfit, colors, face, and body proportions must be identical across all frames.
-- Each frame should be roughly square and equally spaced.
-- Keep the character the same size and on the same ground line across all frames.
-- Use a plain flat solid-color background behind all frames.
-- Do NOT draw borders, labels, numbers, or text on the frames.
-- The motion must be exaggerated enough to read clearly at small sprite sizes.
-- Arms and legs MUST change position between every adjacent frame.
-- This is a ${animationType} animation — make the movement dynamic and energetic.`;
+- Draw exactly one character and nothing else.
+- Neutral standing pose, readable silhouette, full body visible including feet and hands.
+- Keep the character centered with a small margin around the body.
+- Use a plain flat solid-color background.
+- No border, no frame layout, no shadow box, no text, no label.`;
+}
+
+function buildFramePrompt(
+  characterPrompt: string,
+  animationType: string,
+  styleDesc: string,
+  paletteDesc: string,
+  facingDirection: string,
+  frameIndex: number,
+  frameCount: number,
+  pose: string,
+): string {
+  const motionNotes: Record<string, string> = {
+    run: "Show a powerful running silhouette with strong arm-leg opposition, visible torso bob, airborne lift where appropriate, and secondary motion like sweat, cloth bounce, or hair drag.",
+    walk: "Show a readable walk cycle with alternating contact and passing poses, clear hip and shoulder counter-rotation, and obvious foot placement changes.",
+    idle: "Keep the character mostly still but add subtle breathing, shoulder movement, and tiny body shifts.",
+    attack: "Make the attack pose directional and forceful with clear anticipation, impact, and recovery.",
+    jump: "Show a clear arc from crouch to launch to peak to landing with obvious leg compression and extension.",
+    death: "Show a dramatic loss of balance and collapse with strong silhouette changes in each frame.",
+  };
+
+  return `Using the reference image as the exact same character, create one isolated animation frame.
+
+Character: ${characterPrompt}
+Style: ${styleDesc}
+Colors: ${paletteDesc}
+Facing: ${facingDirection}
+Animation: ${animationType}
+Frame ${frameIndex + 1} of ${frameCount}
+Pose instruction: ${pose}
+
+CRITICAL RULES:
+- Keep the exact same character identity, body shape, outfit, colors, facial features, and proportions as the reference image.
+- Show a clearly different pose from the previous and next frame in the cycle.
+- Full body visible, centered, same approximate scale, feet near the same ground line.
+- Strong readable silhouette at sprite size.
+- Plain flat solid-color background only.
+- No text, labels, borders, props, scenery, or multiple characters.
+- ${motionNotes[animationType] || motionNotes.idle}
+- The limbs must visibly move: arms swing, legs alternate, torso and hips twist naturally, and the pose must not look static.`;
+}
+
+async function generateFrameFromReference(
+  apiKey: string,
+  baseImage: string,
+  characterPrompt: string,
+  animationType: string,
+  styleDesc: string,
+  paletteDesc: string,
+  facingDirection: string,
+  frameIndex: number,
+  frameCount: number,
+  pose: string,
+): Promise<string | null> {
+  const prompt = buildFramePrompt(
+    characterPrompt,
+    animationType,
+    styleDesc,
+    paletteDesc,
+    facingDirection,
+    frameIndex,
+    frameCount,
+    pose,
+  );
+
+  let frame = await callImageModel(apiKey, prompt, [baseImage], FRAME_IMAGE_MODEL);
+  if (frame) return frame;
+
+  await sleep(700);
+
+  const retryPrompt = `Create one sprite animation frame from the reference image. Same character, same body type, same outfit, same colors. ${pose}. ${animationType} motion must be obvious with different arm and leg positions. Plain background.`;
+  frame = await callImageModel(apiKey, retryPrompt, [baseImage], FRAME_IMAGE_MODEL);
+  if (frame) return frame;
+
+  await sleep(700);
+  return callImageModel(apiKey, retryPrompt, [baseImage], BASE_IMAGE_MODEL);
+}
+
+async function generateAnimationFrames(
+  apiKey: string,
+  baseImage: string,
+  characterPrompt: string,
+  animationType: string,
+  styleDesc: string,
+  paletteDesc: string,
+  facingDirection: string,
+  poses: string[],
+): Promise<string[] | null> {
+  const frames: string[] = [];
+  const batchSize = 2;
+
+  for (let start = 0; start < poses.length; start += batchSize) {
+    const batch = poses.slice(start, start + batchSize);
+    const generated = await Promise.all(
+      batch.map((pose, offset) =>
+        generateFrameFromReference(
+          apiKey,
+          baseImage,
+          characterPrompt,
+          animationType,
+          styleDesc,
+          paletteDesc,
+          facingDirection,
+          start + offset,
+          poses.length,
+          pose,
+        )
+      )
+    );
+
+    if (generated.some((frame) => !frame)) {
+      return null;
+    }
+
+    frames.push(...(generated as string[]));
+
+    if (start + batchSize < poses.length) {
+      await sleep(500);
+    }
+  }
+
+  return frames;
 }
 
 // ── Server ──
@@ -278,53 +390,59 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const fw = parseInt(resolution);
-    const totalFrames = Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES);
+    const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
     const styleDesc = style === "pixel-art" ? "pixel art" : style === "chibi" ? "chibi" : "cel-shaded";
     const paletteDesc = palette === "nes" ? "NES color palette" : palette === "snes" ? "SNES palette" : palette === "gameboy" ? "Game Boy 4-shade green" : "vibrant colors";
     const poses = getPosesForAnimation(animationType, totalFrames);
 
     let characterPrompt = prompt.trim();
 
-    // Attempt 1: Generate full sprite sheet in a single image
-    console.log(`Generating ${totalFrames}-frame ${animationType} sprite sheet...`);
-    const sheetPrompt = buildSpriteSheetPrompt(characterPrompt, animationType, styleDesc, paletteDesc, facingDirection, totalFrames, poses);
-    let sheetImage = await callImageModel(LOVABLE_API_KEY, sheetPrompt);
+    console.log(`Generating base character for ${totalFrames}-frame ${animationType} animation...`);
+    const basePrompt = buildBaseCharacterPrompt(characterPrompt, styleDesc, paletteDesc, facingDirection);
+    let baseImage = await callImageModel(LOVABLE_API_KEY, basePrompt, [], BASE_IMAGE_MODEL);
 
-    // Attempt 2: Retry with simplified prompt
-    if (!sheetImage) {
-      console.log("First attempt failed, retrying with simplified prompt...");
-      await new Promise((r) => setTimeout(r, 1500));
-      const simplePrompt = `Create a horizontal sprite sheet with ${totalFrames} frames of a ${styleDesc} ${characterPrompt} doing a ${animationType} animation. Each frame shows a different pose. Facing ${facingDirection}. ${paletteDesc}. Plain background. No text or labels.`;
-      sheetImage = await callImageModel(LOVABLE_API_KEY, simplePrompt);
+    if (!baseImage) {
+      console.log("Base character attempt failed, retrying with simplified prompt...");
+      await sleep(1200);
+      const simpleBasePrompt = `Create one ${styleDesc} game character sprite of ${characterPrompt}. Facing ${facingDirection}. Neutral standing pose. ${paletteDesc}. Plain background.`;
+      baseImage = await callImageModel(LOVABLE_API_KEY, simpleBasePrompt, [], BASE_IMAGE_MODEL);
     }
 
-    // Attempt 3: Rewrite the character prompt and retry
-    if (!sheetImage) {
+    if (!baseImage) {
       const rewritten = await simplifySpritePrompt(LOVABLE_API_KEY, characterPrompt, animationType, facingDirection);
       if (rewritten) {
         characterPrompt = rewritten;
-        console.log("Retrying with rewritten prompt...");
-        const retryPrompt = buildSpriteSheetPrompt(characterPrompt, animationType, styleDesc, paletteDesc, facingDirection, totalFrames, poses);
-        sheetImage = await callImageModel(LOVABLE_API_KEY, retryPrompt);
-
-        if (!sheetImage) {
-          await new Promise((r) => setTimeout(r, 1500));
-          const simpleRetry = `Create a horizontal sprite sheet with ${totalFrames} frames of a ${styleDesc} ${characterPrompt} doing a ${animationType} animation. Each frame shows a different pose. Facing ${facingDirection}. ${paletteDesc}. Plain background.`;
-          sheetImage = await callImageModel(LOVABLE_API_KEY, simpleRetry);
-        }
+        console.log("Retrying base character with rewritten prompt...");
+        const retryBasePrompt = buildBaseCharacterPrompt(characterPrompt, styleDesc, paletteDesc, facingDirection);
+        baseImage = await callImageModel(LOVABLE_API_KEY, retryBasePrompt, [], BASE_IMAGE_MODEL);
       }
     }
 
-    if (!sheetImage) {
+    if (!baseImage) {
       throw new Error("NO_IMAGE_RETURNED");
     }
 
-    console.log("Sprite sheet generated successfully");
+    console.log(`Generating ${totalFrames} motion frames from base character...`);
+    const frames = await generateAnimationFrames(
+      LOVABLE_API_KEY,
+      baseImage,
+      characterPrompt,
+      animationType,
+      styleDesc,
+      paletteDesc,
+      facingDirection,
+      poses,
+    );
 
-    // Return the single sheet image — the client will split it into frames
+    if (!frames) {
+      throw new Error("NO_IMAGE_RETURNED");
+    }
+
+    console.log("Animation frames generated successfully");
+
     return new Response(
       JSON.stringify({
-        spriteSheet: sheetImage,
+        frames,
         frameCount: totalFrames,
         frameWidth: fw,
         frameHeight: fw,
