@@ -33,7 +33,7 @@ const FRAMING_RULES = "single full-body sprite only, centered in frame, same cam
 
 async function generateImage(apiKey: string, prompt: string, referenceImage?: string): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
-  
+
   if (referenceImage) {
     content.push({
       type: "image_url",
@@ -48,7 +48,7 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
+      model: "google/gemini-3.1-flash-image-preview",
       messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
@@ -64,6 +64,22 @@ async function generateImage(apiKey: string, prompt: string, referenceImage?: st
 
   const data = await response.json();
   const message = data.choices?.[0]?.message;
+
+  // Log response structure for debugging
+  const finishReason = data.choices?.[0]?.finish_reason;
+  console.log("AI response:", JSON.stringify({
+    messageKeys: message ? Object.keys(message) : [],
+    hasImages: !!message?.images,
+    imagesLen: message?.images?.length,
+    contentType: typeof message?.content,
+    contentIsArray: Array.isArray(message?.content),
+    finishReason,
+  }));
+
+  if (finishReason === "content_filter" || finishReason === "safety") {
+    console.warn("Content was filtered by AI safety");
+    return null;
+  }
 
   // Extract image from response - try all known paths
   let url = message?.images?.[0]?.image_url?.url;
@@ -144,7 +160,16 @@ Standing in a neutral pose facing ${facingDirection}. ${fw}x${fw} pixel resoluti
 Use ${paletteDesc}. ${FRAMING_RULES}.
 This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
 
-    const baseImage = await generateImage(LOVABLE_API_KEY, basePrompt);
+    let baseImage = await generateImage(LOVABLE_API_KEY, basePrompt);
+
+    // Retry once with a simpler prompt if the first attempt failed
+    if (!baseImage) {
+      console.log("First attempt failed, retrying with simplified prompt...");
+      await new Promise((r) => setTimeout(r, 1500));
+      const simplePrompt = `Generate a ${styleDesc} game character sprite: ${prompt}. Neutral standing pose facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
+      baseImage = await generateImage(LOVABLE_API_KEY, simplePrompt);
+    }
+
     if (!baseImage) {
       throw new Error("Failed to generate base character. Try a different description.");
     }
