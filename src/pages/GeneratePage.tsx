@@ -7,45 +7,10 @@ import { Progress } from '@/components/ui/progress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { useSprites } from '@/hooks/use-sprites';
 import { supabase } from '@/integrations/supabase/client';
+import { stitchFrames } from '@/lib/sprite-sheet';
 import { Sparkles, Loader2, Download, Copy } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import type { AnimationType, SpriteStyle, PaletteType, Resolution, FacingDirection, SpriteSheet } from '@/types/sprite';
-
-/** Load a base64/data-URL image and draw it onto a canvas at the target size */
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-/** Stitch an array of frame data-URLs into a single horizontal sprite sheet */
-async function stitchFrames(frameSrcs: string[], frameW: number, frameH: number): Promise<string> {
-  const canvas = document.createElement('canvas');
-  canvas.width = frameW * frameSrcs.length;
-  canvas.height = frameH;
-  const ctx = canvas.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-
-  for (let i = 0; i < frameSrcs.length; i++) {
-    try {
-      const img = await loadImage(frameSrcs[i]);
-      ctx.drawImage(img, 0, 0, img.width, img.height, i * frameW, 0, frameW, frameH);
-    } catch (e) {
-      console.warn(`Failed to load frame ${i}, using placeholder`);
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(i * frameW, 0, frameW, frameH);
-      ctx.fillStyle = '#666';
-      ctx.font = `${Math.max(8, frameW / 4)}px monospace`;
-      ctx.textAlign = 'center';
-      ctx.fillText(`${i + 1}`, i * frameW + frameW / 2, frameH / 2);
-    }
-  }
-
-  return canvas.toDataURL('image/png');
-}
 
 const ANIM_TYPES: { value: AnimationType; label: string }[] = [
   { value: 'idle', label: 'Idle' },
@@ -133,7 +98,9 @@ export default function GeneratePage() {
 
       // Stitch individual frame images into a single sprite sheet
       const actualFrameCount = data.frames.length;
-      const spriteSheetDataUrl = await stitchFrames(data.frames, fw, fw);
+      const frameWidth = Number(data.frameWidth) || fw;
+      const frameHeight = Number(data.frameHeight) || fw;
+      const spriteSheetDataUrl = await stitchFrames(data.frames, frameWidth, frameHeight);
 
       setProgress(100);
 
@@ -146,8 +113,8 @@ export default function GeneratePage() {
         palette,
         resolution,
         frameCount: actualFrameCount,
-        frameWidth: fw,
-        frameHeight: fw,
+        frameWidth,
+        frameHeight,
         facingDirection: facing,
         imageData: spriteSheetDataUrl,
         createdAt: new Date().toISOString(),
