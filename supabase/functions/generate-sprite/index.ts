@@ -5,8 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const TEXT_MODEL = "google/gemini-3-flash-preview";
 const MAX_GENERATED_FRAMES = 6;
 const MAX_PALETTE_COLORS = 8;
 
@@ -44,10 +42,6 @@ type MotionState = {
   collapse: number;
 };
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function normalizeFrameCount(frameCount: number): 4 | 6 {
   return frameCount <= 4 ? 4 : 6;
 }
@@ -59,20 +53,8 @@ function getLogicalSize(requestedSize: number): number {
   return 32;
 }
 
-function hex(value: string) {
-  return /^#[0-9a-fA-F]{6}$/.test(value) || /^#[0-9a-fA-F]{8}$/.test(value);
-}
-
-function normalizeHexColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.toLowerCase() === "transparent") return "#00000000";
-  return hex(trimmed) ? trimmed.toUpperCase() : null;
-}
-
 function dedupePalette(colors: string[]) {
-  return Array.from(new Set(colors));
+  return Array.from(new Set(colors)).slice(0, MAX_PALETTE_COLORS);
 }
 
 function defaultPaletteSeed(palette: PaletteType): string[] {
@@ -86,75 +68,6 @@ function defaultPaletteSeed(palette: PaletteType): string[] {
     return ["#00000000", "#1B1C2E", "#4D2B32", "#A85D5D", "#E09F6B", "#7DB37D", "#5B6EE1", "#F7F4EA"];
   }
   return ["#00000000", "#1F2430", "#5C6773", "#C47C4D", "#E7B97A", "#6BA368", "#D95763", "#F5F7FA"];
-}
-
-function normalizePalette(rawPalette: unknown, paletteType: PaletteType): string[] {
-  const base = defaultPaletteSeed(paletteType);
-  const incoming = Array.isArray(rawPalette)
-    ? rawPalette.map(normalizeHexColor).filter((color): color is string => Boolean(color))
-    : [];
-
-  const merged = dedupePalette(["#00000000", ...incoming, ...base]).slice(0, MAX_PALETTE_COLORS);
-  if (merged.length < 8) {
-    return [...merged, ...base.filter((color) => !merged.includes(color))].slice(0, MAX_PALETTE_COLORS);
-  }
-  return merged;
-}
-
-function extractTextContent(message: any): string | null {
-  if (!message?.content) return null;
-  if (typeof message.content === "string") return message.content.trim() || null;
-  if (Array.isArray(message.content)) {
-    return message.content
-      .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
-      .map((part: any) => part.text.trim())
-      .filter(Boolean)
-      .join(" ")
-      .trim() || null;
-  }
-  return null;
-}
-
-async function callStructuredTool<T>(
-  apiKey: string,
-  systemPrompt: string,
-  userPrompt: string,
-  tool: Record<string, unknown>,
-  toolName: string,
-): Promise<T> {
-  const response = await fetch(AI_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: TEXT_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      tools: [tool],
-      tool_choice: { type: "function", function: { name: toolName } },
-      max_tokens: 1200,
-    }),
-  });
-
-  if (!response.ok) {
-    const txt = await response.text();
-    console.error(`AI API error ${response.status}:`, txt.slice(0, 400));
-    if (response.status === 429) throw new Error("RATE_LIMITED");
-    if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
-    throw new Error(`AI gateway returned ${response.status}`);
-  }
-
-  const data = await response.json();
-  const toolArgs = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  if (toolArgs) return JSON.parse(toolArgs) as T;
-
-  const content = extractTextContent(data.choices?.[0]?.message);
-  if (!content) throw new Error("AI_EMPTY_RESPONSE");
-  return JSON.parse(content) as T;
 }
 
 function detectArchetype(prompt: string): Archetype {
@@ -200,78 +113,29 @@ function detectExpression(prompt: string): Expression {
   return "neutral";
 }
 
-function sanitizeRecipe(raw: Partial<SpriteRecipe> | null | undefined, prompt: string, paletteType: PaletteType): SpriteRecipe {
-  const fallbackArchetype = detectArchetype(prompt);
-  const rawFeatures = Array.isArray(raw?.features) ? raw?.features : [];
-  const allowedFeatures: Feature[] = ["ears", "tail", "cape", "helmet", "hat", "horns", "spots", "wings", "antenna"];
-  const features = Array.from(new Set([
-    ...detectFeatures(prompt, fallbackArchetype),
-    ...rawFeatures.filter((feature): feature is Feature => allowedFeatures.includes(feature as Feature)),
-  ]));
-
-  const accessoryValues: Accessory[] = ["none", "sword", "shield", "staff"];
-  const expressionValues: Expression[] = ["neutral", "cute", "happy", "angry"];
-  const archetypeValues: Archetype[] = ["humanoid", "canine", "slime", "bird", "robot", "skeleton"];
-
-  return {
-    archetype: archetypeValues.includes(raw?.archetype as Archetype) ? (raw?.archetype as Archetype) : fallbackArchetype,
-    palette: normalizePalette(raw?.palette, paletteType),
-    features,
-    accessory: accessoryValues.includes(raw?.accessory as Accessory) ? (raw?.accessory as Accessory) : detectAccessory(prompt),
-    expression: expressionValues.includes(raw?.expression as Expression) ? (raw?.expression as Expression) : detectExpression(prompt),
-    summary: typeof raw?.summary === "string" && raw.summary.trim()
-      ? raw.summary.trim().slice(0, 200)
-      : prompt.trim().slice(0, 200),
-  };
+function promptTint(prompt: string): string[] {
+  const input = prompt.toLowerCase();
+  if (/(blue|ice|water|frost)/.test(input)) return ["#3B82F6", "#93C5FD"];
+  if (/(green|nature|forest|poison)/.test(input)) return ["#22C55E", "#86EFAC"];
+  if (/(red|fire|lava|flame)/.test(input)) return ["#EF4444", "#FCA5A5"];
+  if (/(gold|yellow|sun)/.test(input)) return ["#EAB308", "#FDE047"];
+  if (/(purple|magic|arcane)/.test(input)) return ["#A855F7", "#D8B4FE"];
+  return [];
 }
 
-async function generateRecipe(
-  apiKey: string,
-  prompt: string,
-  style: SpriteStyle,
-  paletteType: PaletteType,
-  facingDirection: FacingDirection,
-): Promise<SpriteRecipe> {
-  const tool = {
-    type: "function",
-    function: {
-      name: "output_sprite_recipe",
-      description: "Return a compact character recipe for a procedural pixel sprite generator",
-      parameters: {
-        type: "object",
-        properties: {
-          archetype: { type: "string", enum: ["humanoid", "canine", "slime", "bird", "robot", "skeleton"] },
-          palette: {
-            type: "array",
-            items: { type: "string" },
-          },
-          features: {
-            type: "array",
-            items: { type: "string", enum: ["ears", "tail", "cape", "helmet", "hat", "horns", "spots", "wings", "antenna"] },
-          },
-          accessory: { type: "string", enum: ["none", "sword", "shield", "staff"] },
-          expression: { type: "string", enum: ["neutral", "cute", "happy", "angry"] },
-          summary: { type: "string" },
-        },
-        required: ["archetype", "palette", "features", "accessory", "expression", "summary"],
-        additionalProperties: false,
-      },
-    },
-  };
+function buildRecipe(prompt: string, paletteType: PaletteType): SpriteRecipe {
+  const archetype = detectArchetype(prompt);
+  const features = detectFeatures(prompt, archetype);
+  const palette = dedupePalette(["#00000000", ...promptTint(prompt), ...defaultPaletteSeed(paletteType)]);
 
-  try {
-    const raw = await callStructuredTool<Partial<SpriteRecipe>>(
-      apiKey,
-      "You design compact recipes for a procedural pixel sprite engine. Focus on silhouette, palette, and readable game-dev-friendly traits. Keep outputs small and practical.",
-      `Create a compact sprite recipe for: ${prompt}.\nStyle: ${style}.\nPalette family: ${paletteType}.\nFacing: ${facingDirection}.\nReturn a readable archetype, 6-8 palette colors, a few silhouette features, one optional accessory, and an expression.`,
-      tool,
-      "output_sprite_recipe",
-    );
-    return sanitizeRecipe(raw, prompt, paletteType);
-  } catch (error) {
-    console.warn("Recipe generation fell back to heuristics:", error);
-    return sanitizeRecipe(null, prompt, paletteType);
-  }
+  return {
+    archetype,
+    palette,
+    features,
+    accessory: detectAccessory(prompt),
+    expression: detectExpression(prompt),
+    summary: prompt.trim().slice(0, 200),
+  };
 }
 
 function createFrame(size: number): number[] {
@@ -432,7 +296,7 @@ function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: numbe
   setPixel(frame, size, mirrorX(cx + 1, cx, facing), y, color);
 }
 
-function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, cx: number, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>) {
+function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>) {
   if (recipe.accessory === "none") return;
   const dir = facing === "left" ? -1 : 1;
   if (recipe.accessory === "sword") {
@@ -509,7 +373,7 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
   drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, 2);
   drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary);
   drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary);
-  drawAccessory(frame, size, recipe, cx, leadHandX, leadHandY, facing, roles);
+  drawAccessory(frame, size, recipe, leadHandX, leadHandY, facing, roles);
 }
 
 function drawCanine(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
@@ -614,7 +478,7 @@ function drawRobot(frame: number[], size: number, recipe: SpriteRecipe, facing: 
   drawLine(frame, size, cx + 2, bodyY + 1, cx + 4 + motion.armSwingA, bodyY + 5, roles.outline, 2);
   drawLine(frame, size, cx - 2, bodyY + 6, cx - 2 + motion.legSwingA, ground, roles.outline, 2);
   drawLine(frame, size, cx + 2, bodyY + 6, cx + 2 + motion.legSwingB, ground, roles.outline, 2);
-  drawAccessory(frame, size, recipe, cx, mirrorX(cx + 4 + motion.armSwingA, cx, facing), bodyY + 5, facing, roles);
+  drawAccessory(frame, size, recipe, mirrorX(cx + 4 + motion.armSwingA, cx, facing), bodyY + 5, facing, roles);
 }
 
 function drawSkeleton(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
@@ -662,19 +526,16 @@ serve(async (req) => {
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
     const outputSize = parseInt(resolution);
     const logicalSize = getLogicalSize(outputSize);
     const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
-    const recipe = await generateRecipe(LOVABLE_API_KEY, String(prompt), style as SpriteStyle, palette as PaletteType, facingDirection as FacingDirection);
+    const recipe = buildRecipe(String(prompt), palette as PaletteType);
 
     const frames = Array.from({ length: totalFrames }, (_, index) =>
       renderFrame(recipe, logicalSize, animationType as AnimationType, index, totalFrames, facingDirection as FacingDirection, style as SpriteStyle)
     );
 
-    console.log(`Generated ${frames.length} procedural ${recipe.archetype} frames for: ${recipe.summary}`);
+    console.log(`Generated ${frames.length} deterministic ${recipe.archetype} frames for: ${recipe.summary}`);
 
     return new Response(
       JSON.stringify({
@@ -691,20 +552,9 @@ serve(async (req) => {
     );
   } catch (e) {
     console.error("generate-sprite error:", e);
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    let status = 500;
-    if (msg === "RATE_LIMITED") status = 429;
-    if (msg === "CREDITS_EXHAUSTED") status = 402;
-
     return new Response(
-      JSON.stringify({
-        error: msg === "RATE_LIMITED"
-          ? "Rate limited. Please try again in a moment."
-          : msg === "CREDITS_EXHAUSTED"
-          ? "AI credits exhausted. Add funds in Settings > Workspace > Usage."
-          : "Sprite generation failed. Please try a different prompt.",
-      }),
-      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ error: "Sprite generation failed. Please try a different prompt." }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
