@@ -9,26 +9,29 @@ const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_GENERATED_FRAMES = 6;
 const TEXT_MODEL = "google/gemini-3-flash-preview";
 
+const BASE_IMAGE_MODEL = "google/gemini-2.5-flash-image";
+const FRAME_IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
+
 const WALK_PHASES = [
-  "contact pose, left heel forward, right leg pushing back, right arm forward, left arm back",
-  "down pose, weight settling on left leg, torso slightly lowered, arms mid-swing",
-  "passing pose, right knee crossing under body, torso upright, arms passing center",
-  "up pose, body lifted slightly, right knee coming forward, left heel lifting",
-  "contact pose, right heel forward, left leg pushing back, left arm forward, right arm back",
-  "down pose, weight settling on right leg, torso slightly lowered, arms mid-swing",
-  "passing pose, left knee crossing under body, torso upright, arms passing center",
-  "up pose, body lifted slightly, left knee coming forward, right heel lifting",
+  "left foot planted forward, right heel lifted behind, left leg taking weight, right arm swung forward to chest height, left arm swung back behind the hip, torso upright",
+  "left knee bent under the body as weight drops, right leg passing forward, right arm starting to swing back, left arm starting to swing forward, hips slightly lowered",
+  "right knee passing in front of the body, left leg straightening under the torso, left arm moving forward in front of the chest, right arm moving back past the waist, torso centered",
+  "right heel reaching forward for the next step, left heel lifting behind, left arm swung forward, right arm swung back, body slightly lifted",
+  "right foot planted forward, left heel lifted behind, right leg taking weight, left arm swung forward to chest height, right arm swung back behind the hip, torso upright",
+  "right knee bent under the body as weight drops, left leg passing forward, left arm starting to swing back, right arm starting to swing forward, hips slightly lowered",
+  "left knee passing in front of the body, right leg straightening under the torso, right arm moving forward in front of the chest, left arm moving back past the waist, torso centered",
+  "left heel reaching forward for the next step, right heel lifting behind, right arm swung forward, left arm swung back, body slightly lifted",
 ];
 
 const RUN_PHASES = [
-  "left foot contact, body leaning forward, right leg stretched behind, right arm driving forward",
-  "compression pose, left leg bent under body, torso lowered, arms pumping",
-  "flight pose, both feet off ground, right knee driving forward, left leg trailing",
-  "high point, torso lifted, right thigh high, left arm forward, right arm back",
-  "right foot contact, body leaning forward, left leg stretched behind, left arm driving forward",
-  "compression pose, right leg bent under body, torso lowered, arms pumping",
-  "flight pose, both feet off ground, left knee driving forward, right leg trailing",
-  "high point, torso lifted, left thigh high, right arm forward, left arm back",
+  "left foot striking the ground out in front, right leg fully extended back, right arm driven forward to chest height, left arm driven back behind the torso, torso leaned forward aggressively",
+  "left leg compressed under the body carrying weight, right knee driving sharply upward, left arm coming forward, right arm pulling back, head and shoulders lowered slightly from impact",
+  "both feet off the ground, right knee lifted high in front, left leg stretched long behind, left arm forward, right arm back, torso pitched forward in a sprinting silhouette",
+  "right leg reaching forward for the next ground strike, left leg trailing back and bent, left arm forward high, right arm back behind the ribcage, body at the top of the running bounce",
+  "right foot striking the ground out in front, left leg fully extended back, left arm driven forward to chest height, right arm driven back behind the torso, torso leaned forward aggressively",
+  "right leg compressed under the body carrying weight, left knee driving sharply upward, right arm coming forward, left arm pulling back, head and shoulders lowered slightly from impact",
+  "both feet off the ground, left knee lifted high in front, right leg stretched long behind, right arm forward, left arm back, torso pitched forward in a sprinting silhouette",
+  "left leg reaching forward for the next ground strike, right leg trailing back and bent, right arm forward high, left arm back behind the ribcage, body at the top of the running bounce",
 ];
 
 const FRAMING_RULES = "single full-body sprite only, centered in frame, same camera distance, same sprite scale, same ground line, same silhouette proportions, no duplicate character, no extra limbs, no weapon changes, plain flat background";
@@ -93,7 +96,7 @@ async function simplifySpritePrompt(apiKey: string, prompt: string, animationTyp
   return rewrittenPrompt && rewrittenPrompt !== prompt ? rewrittenPrompt : null;
 }
 
-async function generateImage(apiKey: string, prompt: string, referenceImages: string[] = []): Promise<string | null> {
+async function generateImage(apiKey: string, prompt: string, referenceImages: string[] = [], model = BASE_IMAGE_MODEL): Promise<string | null> {
   const content: any[] = [{ type: "text", text: prompt }];
 
   for (const referenceImage of referenceImages.filter(Boolean)) {
@@ -110,7 +113,7 @@ async function generateImage(apiKey: string, prompt: string, referenceImages: st
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
+      model,
       messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
@@ -130,6 +133,7 @@ async function generateImage(apiKey: string, prompt: string, referenceImages: st
 
   const finishReason = data.choices?.[0]?.finish_reason;
   console.log("AI response:", JSON.stringify({
+    model,
     messageKeys: message ? Object.keys(message) : [],
     hasImages: !!message?.images,
     imagesLen: message?.images?.length,
@@ -168,11 +172,11 @@ const POSE_GUIDES: Record<string, (frame: number, total: number) => string> = {
   },
   walk: (f, t) => {
     const phase = WALK_PHASES[Math.floor((f / t) * WALK_PHASES.length) % WALK_PHASES.length];
-    return `walking cycle, ${phase}, left and right limbs clearly offset in opposite directions, frame ${f + 1} of ${t}`;
+    return `walking cycle, ${phase}, arms and legs clearly counter-swinging, readable silhouette, frame ${f + 1} of ${t}`;
   },
   run: (f, t) => {
     const phase = RUN_PHASES[Math.floor((f / t) * RUN_PHASES.length) % RUN_PHASES.length];
-    return `running cycle, ${phase}, strong arm pump, clear stride separation, forward-leaning athletic motion, frame ${f + 1} of ${t}`;
+    return `running cycle, ${phase}, explosive arm pump, large stride separation, readable silhouette, frame ${f + 1} of ${t}`;
   },
   attack: (f, t) => {
     const poses = ["winding up with striking arm pulled far back and chest twisted", "mid-swing with shoulders rotating forward", "full extension striking forward with weight committed", "follow through with torso carried past center", "recovering back into stance with arms resetting"];
@@ -200,7 +204,7 @@ function getSecondaryMotion(animationType: string): string {
     case "walk":
       return "gentle vertical body bob, shoulders twisting opposite the hips, and light cloth or hair sway";
     case "run":
-      return "strong vertical body bob, shoulders twisting opposite the hips, slight cloth or hair bounce, and a few small sweat droplets near the head to show exertion";
+      return "strong body bounce, shoulder and hip twist, cloth or hair bounce, and 2 to 4 tiny sweat droplets trailing from the head to show exertion";
     case "attack":
       return "clear torso twist, shoulder rotation, and trailing secondary motion in clothing or hair";
     case "jump":
@@ -234,31 +238,30 @@ function buildFramePrompt({
   frameSize,
 }: FramePromptOptions): string {
   const locomotionRule = animationType === "walk" || animationType === "run"
-    ? "Arms must counter-swing opposite the legs, with one side forward while the other side moves back."
-    : "The body posture must clearly advance through the action from the previous frame.";
+    ? "One arm must swing forward while the opposite leg swings forward, and the other arm and leg swing back."
+    : "The body posture must clearly advance through the action instead of repeating the previous pose.";
 
-  return `Create the NEXT animation frame for this exact ${styleDesc} sprite character.
-Reference image 1 is the canonical character design.${previousPoseDesc ? " Reference image 2 is the previous animation frame." : ""}
+  return `Create one NEW ${styleDesc} sprite frame for this exact character.
+Use the reference image only to preserve the character design, not the pose.
+Do NOT copy the reference pose.
 
-DO NOT keep the same pose as the reference image.
-This frame must show clear visible movement in the limbs and body.
-
-Target animation: ${animationType}.
 Previous frame pose: ${previousPoseDesc ?? "base character pose"}.
-New target pose for frame ${frameIndex + 1} of ${totalFrames}: ${poseDesc}.
+Target pose for frame ${frameIndex + 1} of ${totalFrames}: ${poseDesc}.
 
-Required body changes:
-- Move the left arm and right arm into visibly different positions.
-- Move the left leg and right leg into visibly different positions.
-- Change the torso angle, shoulder line, and head height to match the action.
-- Make the silhouette clearly different from the previous frame while preserving the same character.
-- ${locomotionRule}
-- Add this secondary motion: ${getSecondaryMotion(animationType)}.
+Animation requirements:
+1. Move both arms into visibly new positions.
+2. Move both legs into visibly new positions.
+3. Change the torso lean, shoulder line, hip tilt, and head height to show motion.
+4. Make the silhouette clearly different from the previous frame.
+5. ${locomotionRule}
+6. Add this secondary motion: ${getSecondaryMotion(animationType)}.
+7. Exaggerate the motion enough that it reads clearly at small sprite size.
 
+If the new frame looks too similar to the reference image, increase the limb movement and body lean.
 Character description: ${characterPrompt}.
-Keep the exact same face, outfit, colors, proportions, and overall character identity.
+Keep the exact same face, body shape, outfit, colors, proportions, and overall character identity.
 Keep the framing locked: ${FRAMING_RULES}. Same ${frameSize}x${frameSize} pixel size.
-Output one single full-body sprite frame only. No sprite sheet, no duplicate character, no redesign.`;
+Return one single full-body sprite frame only. Plain background. No sprite sheet, no duplicate character, no redesign.`;
 }
 
 serve(async (req) => {
@@ -286,21 +289,18 @@ serve(async (req) => {
     const paletteDesc = palette === "nes" ? "NES color palette" : palette === "snes" ? "SNES palette" : palette === "gameboy" ? "Game Boy 4-shade green" : "vibrant colors";
     const getPose = POSE_GUIDES[animationType] || POSE_GUIDES.idle;
     const openingPose = getPose(0, totalFrames);
-    const buildBasePrompt = (characterPrompt: string) => `Create a single ${styleDesc} game character sprite: ${characterPrompt}.
-Pose: ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixel resolution.
-Use ${paletteDesc}. ${FRAMING_RULES}.
-This is a game sprite for animation, so make it clear, iconic, readable at small size, and keep the character framed consistently.`;
-    const buildSimplePrompt = (characterPrompt: string) => `Generate a ${styleDesc} game character sprite: ${characterPrompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background.`;
+    const buildBasePrompt = (characterPrompt: string) => `Create a single ${styleDesc} game character sprite: ${characterPrompt}. Pose: ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixel resolution. Use ${paletteDesc}. ${FRAMING_RULES}. Make the silhouette bold, readable, and consistent for animation.`;
+    const buildSimplePrompt = (characterPrompt: string) => `Generate a ${styleDesc} game character sprite: ${characterPrompt}. Pose ${openingPose}. Facing ${facingDirection}. ${fw}x${fw} pixels. ${paletteDesc}. Plain background. Bold readable silhouette.`;
 
     console.log("Step 1: Generating base character...");
     let characterPrompt = prompt.trim();
 
-    let baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt));
+    let baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt), [], BASE_IMAGE_MODEL);
 
     if (!baseImage) {
       console.log("First attempt failed, retrying with simplified prompt...");
       await new Promise((r) => setTimeout(r, 1500));
-      baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt));
+      baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt), [], BASE_IMAGE_MODEL);
     }
 
     if (!baseImage) {
@@ -309,11 +309,11 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
       if (rewrittenPrompt) {
         characterPrompt = rewrittenPrompt;
         console.log("Retrying base generation with rewritten prompt...");
-        baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt));
+        baseImage = await generateImage(LOVABLE_API_KEY, buildBasePrompt(characterPrompt), [], BASE_IMAGE_MODEL);
 
         if (!baseImage) {
           await new Promise((r) => setTimeout(r, 1500));
-          baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt));
+          baseImage = await generateImage(LOVABLE_API_KEY, buildSimplePrompt(characterPrompt), [], BASE_IMAGE_MODEL);
         }
       }
     }
@@ -346,11 +346,10 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
 
       while (!frameImage && retries < 2) {
         try {
-          const referenceImages = i === 1 ? [baseImage] : [baseImage, frames[i - 1]];
           if (i > 0 || retries > 0) {
             await new Promise((r) => setTimeout(r, 1000));
           }
-          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, referenceImages);
+          frameImage = await generateImage(LOVABLE_API_KEY, framePrompt, [baseImage], FRAME_IMAGE_MODEL);
         } catch (e) {
           if ((e as Error).message === "RATE_LIMITED") {
             console.log("Rate limited, waiting 3s...");
