@@ -268,12 +268,15 @@ This is a game sprite for animation, so make it clear, iconic, readable at small
       const poseDesc = getPose(i, totalFrames);
       console.log(`Step 2: Generating frame ${i + 1}/${totalFrames}: ${poseDesc.slice(0, 60)}`);
 
-      const framePrompt = `Edit this exact ${styleDesc} game character sprite into animation frame ${i + 1} of ${totalFrames}: ${poseDesc}.
-This character is: ${characterPrompt}.
-Keep the SAME character design, face, outfit, colors, proportions, and ${styleDesc} style.
-Keep the framing locked: ${FRAMING_RULES}. Same ${fw}x${fw} pixel size.
-Only change the body pose slightly from the reference to create smooth frame-by-frame motion.
-Do not redesign the character, do not add new details, and do not create a sprite sheet.`;
+      const framePrompt = `IMPORTANT: Change the pose of this character sprite. Do NOT keep the same pose.
+
+This is frame ${i + 1} of a ${totalFrames}-frame ${animationType} animation. The character MUST be in this exact pose: ${poseDesc}.
+
+Move the arms and legs into the described position. The limbs MUST be in different positions than the reference image.
+
+Character: ${characterPrompt}. Style: ${styleDesc}. Size: ${fw}x${fw} pixels.
+Keep the same character design, colors, outfit, and proportions. Change ONLY the body pose — move arms, legs, torso as described above.
+${FRAMING_RULES}. Do not create a sprite sheet — output a single frame.`;
 
       let frameImage: string | null = null;
       let retries = 0;
