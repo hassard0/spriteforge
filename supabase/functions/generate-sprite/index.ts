@@ -648,7 +648,6 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: "Sprite generation failed. Please try a different prompt." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
-  const headSize = style === "chibi" ? 4 : 3;
   const bodyWidthOffset = recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0;
   const torsoW = Math.max(4, (style === "chibi" ? 6 : 5) + bodyWidthOffset + (recipe.outfitStyle === "armor" ? 1 : 0));
   const torsoH = style === "chibi" ? 6 : 7;
