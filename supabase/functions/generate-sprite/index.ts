@@ -7,166 +7,408 @@ const corsHeaders = {
 
 const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const TEXT_MODEL = "google/gemini-2.5-flash";
-
-// ── Pose descriptions per animation type ──
+const MAX_PALETTE_COLORS = 16;
+const MAX_GENERATED_FRAMES = 6;
 
 const WALK_POSES: Record<number, string[]> = {
   4: [
-    "contact: left foot forward on ground, right foot back, right arm forward, left arm back",
-    "passing: right leg lifting, weight on left leg, arms at sides crossing center",
-    "contact: right foot forward on ground, left foot back, left arm forward, right arm back",
-    "passing: left leg lifting, weight on right leg, arms at sides crossing center",
+    "contact pose, left foot forward, right foot back, right arm forward, left arm back",
+    "passing pose, right knee lifting under body, arms crossing center",
+    "contact pose, right foot forward, left foot back, left arm forward, right arm back",
+    "passing pose, left knee lifting under body, arms crossing center",
   ],
   6: [
-    "contact: left heel strikes ground, right leg back, right arm forward, left arm back",
-    "down: weight on left leg, knee bends, right foot lifting",
-    "passing: right leg swings forward under body, left leg straight",
-    "contact: right heel strikes ground, left leg back, left arm forward, right arm back",
-    "down: weight on right leg, knee bends, left foot lifting",
-    "passing: left leg swings forward under body, right leg straight",
+    "contact pose, left heel striking ground, right leg back, right arm forward",
+    "down pose, weight settling on left leg, right foot lifting",
+    "passing pose, right leg swinging forward under body",
+    "contact pose, right heel striking ground, left leg back, left arm forward",
+    "down pose, weight settling on right leg, left foot lifting",
+    "passing pose, left leg swinging forward under body",
   ],
 };
 
 const RUN_POSES: Record<number, string[]> = {
   4: [
-    "contact: left foot under body, right leg trailing back, right arm forward, torso leaning",
-    "flight: both feet off ground, right knee high, left leg back",
-    "contact: right foot under body, left leg trailing back, left arm forward, torso leaning",
-    "flight: both feet off ground, left knee high, right leg back",
+    "contact pose, left foot under body, right leg trailing, torso leaning hard forward",
+    "flight pose, both feet airborne, right knee high, left leg stretched back",
+    "contact pose, right foot under body, left leg trailing, torso leaning hard forward",
+    "flight pose, both feet airborne, left knee high, right leg stretched back",
   ],
   6: [
-    "contact: left foot lands, right leg extended back, right arm forward",
-    "compression: left knee bends, right knee rising, body lowers",
-    "flight: both feet airborne, right knee high forward, left leg back",
-    "contact: right foot lands, left leg extended back, left arm forward",
-    "compression: right knee bends, left knee rising, body lowers",
-    "flight: both feet airborne, left knee high forward, right leg back",
+    "contact pose, left foot lands, right leg extended back, right arm forward",
+    "compression pose, left knee bent, body dropping, right knee rising",
+    "flight pose, both feet airborne, right knee high forward, left leg back",
+    "contact pose, right foot lands, left leg extended back, left arm forward",
+    "compression pose, right knee bent, body dropping, left knee rising",
+    "flight pose, both feet airborne, left knee high forward, right leg back",
   ],
 };
 
 const IDLE_POSES: Record<number, string[]> = {
   4: [
-    "standing relaxed, arms at sides, neutral posture",
-    "slight inhale, chest lifted slightly, shoulders raised a tiny bit",
-    "standing relaxed, arms at sides, neutral posture",
-    "slight exhale, chest lowered, shoulders dropped slightly",
+    "neutral relaxed stance",
+    "small inhale, chest slightly higher, tiny shoulder rise",
+    "neutral relaxed stance",
+    "small exhale, chest slightly lower, tiny shoulder drop",
   ],
   6: [
-    "standing relaxed, arms at sides",
-    "slight inhale, chest rising",
-    "chest at peak, tiny shoulder lift",
-    "exhale beginning, chest lowering",
-    "chest at lowest, shoulders dropped",
-    "returning to neutral position",
+    "neutral relaxed stance",
+    "slight inhale",
+    "peak inhale",
+    "begin exhale",
+    "lowest chest position",
+    "return to neutral",
   ],
 };
 
 const ATTACK_POSES: Record<number, string[]> = {
   4: [
-    "wind-up: arm pulled back, chest twisted, weight on back foot",
-    "mid-swing: arm coming forward, shoulders rotating, weight shifting",
-    "full extension: arm fully forward, weight committed, body stretched",
-    "recovery: arm pulling back, returning to stance",
+    "wind-up, attack arm pulled back, chest twisted, weight on back foot",
+    "mid swing, arm accelerating forward, shoulders rotating",
+    "impact, arm fully extended, body stretched forward",
+    "recovery, arm returning, stance stabilizing",
   ],
   6: [
-    "ready stance, arms up in guard",
-    "wind-up: arm pulled back, body coiling",
-    "release: arm accelerating forward, hips rotating",
-    "impact: full extension, arm forward",
-    "follow through: arm past center, momentum carrying",
-    "recovery: returning to guard stance",
+    "ready stance, guard up",
+    "wind-up, body coiling",
+    "release, arm firing forward",
+    "impact, full extension",
+    "follow-through, momentum carrying through",
+    "recovery, returning to ready stance",
   ],
 };
 
 const JUMP_POSES: Record<number, string[]> = {
   4: [
-    "crouching low, knees deeply bent, arms down",
-    "launching upward, legs extending, arms up",
-    "peak of jump, fully extended, arms overhead",
-    "descending, knees bending, arms dropping",
+    "anticipation crouch, knees bent low, arms down",
+    "launch, legs extending, arms thrust up",
+    "peak jump, body fully extended in air",
+    "descent, knees bending to prepare for landing",
   ],
   6: [
-    "anticipation: crouching low, knees bent",
-    "launch: legs pushing off, rising, arms up",
-    "rising: legs tucking under, arms overhead",
-    "peak: fully extended in air",
-    "falling: legs extending down, arms out",
-    "landing: knees bent absorbing impact",
+    "anticipation crouch",
+    "launch upward",
+    "rising, legs tucked a bit",
+    "peak of jump",
+    "falling, legs extending down",
+    "landing, knees absorbing impact",
   ],
 };
 
 const DEATH_POSES: Record<number, string[]> = {
   4: [
-    "hit reaction: jerking backward, arms flailing",
-    "stumbling: leaning far to side, losing balance",
-    "falling: body mostly horizontal, limbs loose",
-    "collapsed: lying flat on ground, motionless",
+    "hit reaction, body jerking back",
+    "stumble, balance breaking to one side",
+    "falling, body nearing horizontal",
+    "collapsed, lying still on the ground",
   ],
   6: [
-    "hit reaction: flinching from impact",
-    "staggering: leaning backward, arms up",
-    "losing balance: tilting sideways",
-    "falling: body nearly horizontal",
-    "hitting ground: body flat",
-    "collapsed: lying still",
+    "hit reaction",
+    "staggering backward",
+    "losing balance sideways",
+    "falling nearly horizontal",
+    "hitting the ground",
+    "collapsed motionless",
   ],
 };
-
-function getPosesForAnimation(animationType: string, frameCount: number): string[] {
-  const poseSets: Record<string, Record<number, string[]>> = {
-    walk: WALK_POSES, run: RUN_POSES, idle: IDLE_POSES,
-    attack: ATTACK_POSES, jump: JUMP_POSES, death: DEATH_POSES,
-  };
-  const set = poseSets[animationType] || poseSets.idle;
-  return set[frameCount] || set[6] || set[4];
-}
 
 function normalizeFrameCount(frameCount: number): 4 | 6 {
   return frameCount <= 4 ? 4 : 6;
 }
 
-// ── Build the prompt that asks the AI to output pixel grids ──
+function getPosesForAnimation(animationType: string, frameCount: number): string[] {
+  const poseSets: Record<string, Record<number, string[]>> = {
+    walk: WALK_POSES,
+    run: RUN_POSES,
+    idle: IDLE_POSES,
+    attack: ATTACK_POSES,
+    jump: JUMP_POSES,
+    death: DEATH_POSES,
+  };
 
-function buildPixelGridPrompt(
-  characterPrompt: string,
+  const set = poseSets[animationType] || poseSets.idle;
+  return set[frameCount] || set[6] || set[4];
+}
+
+function getLogicalSize(requestedSize: number): number {
+  if (requestedSize <= 16) return 16;
+  if (requestedSize <= 32) return 32;
+  if (requestedSize <= 48) return 24;
+  return 32;
+}
+
+function extractTextContent(message: any): string | null {
+  if (!message?.content) return null;
+  if (typeof message.content === "string") return message.content.trim() || null;
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter((part: any) => part?.type === "text" && typeof part?.text === "string")
+      .map((part: any) => part.text.trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim() || null;
+  }
+  return null;
+}
+
+function detectTruncation(text: string): boolean {
+  const trimmed = text.trim();
+  const openBraces = (trimmed.match(/\{/g) || []).length;
+  const closeBraces = (trimmed.match(/\}/g) || []).length;
+  const openBrackets = (trimmed.match(/\[/g) || []).length;
+  const closeBrackets = (trimmed.match(/\]/g) || []).length;
+
+  if (openBraces !== closeBraces || openBrackets !== closeBrackets) return true;
+  return /\.\.\.$|…$|\[truncated\]/i.test(trimmed);
+}
+
+function extractJsonFromResponse(response: string): unknown {
+  let cleaned = response
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  const jsonStart = cleaned.search(/[\{\[]/);
+  const jsonEnd = cleaned.lastIndexOf(jsonStart !== -1 && cleaned[jsonStart] === "[" ? "]" : "}");
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error("No JSON object found in response");
+  }
+
+  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    cleaned = cleaned
+      .replace(/,\s*}/g, "}")
+      .replace(/,\s*]/g, "]")
+      .replace(/[\x00-\x1F\x7F]/g, "");
+    return JSON.parse(cleaned);
+  }
+}
+
+async function callStructuredTool<T>(
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  tool: Record<string, unknown>,
+  toolName: string,
+): Promise<T> {
+  const response = await fetch(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: TEXT_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      tools: [tool],
+      tool_choice: { type: "function", function: { name: toolName } },
+    }),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    console.error(`AI API error ${response.status}:`, txt.slice(0, 500));
+    if (response.status === 429) throw new Error("RATE_LIMITED");
+    if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
+    throw new Error(`AI gateway returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+  const toolArgs = choice?.message?.tool_calls?.[0]?.function?.arguments;
+
+  if (toolArgs) {
+    return JSON.parse(toolArgs) as T;
+  }
+
+  const content = extractTextContent(choice?.message);
+  if (!content) throw new Error("AI_EMPTY_RESPONSE");
+  if (detectTruncation(content)) throw new Error("AI_TRUNCATED");
+  return extractJsonFromResponse(content) as T;
+}
+
+function normalizeHexColor(color: unknown): string | null {
+  if (typeof color !== "string") return null;
+  const trimmed = color.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "transparent") return "#00000000";
+  if (/^#[0-9a-fA-F]{8}$/.test(trimmed)) return trimmed.toUpperCase();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed.toUpperCase();
+  return null;
+}
+
+function normalizePalette(rawPalette: unknown): string[] {
+  const unique = new Set<string>(["#00000000"]);
+
+  if (Array.isArray(rawPalette)) {
+    for (const color of rawPalette) {
+      const normalized = normalizeHexColor(color);
+      if (normalized) unique.add(normalized);
+      if (unique.size >= MAX_PALETTE_COLORS) break;
+    }
+  }
+
+  if (unique.size < 2) {
+    unique.add("#1F2937");
+    unique.add("#F9FAFB");
+    unique.add("#F59E0B");
+  }
+
+  return Array.from(unique).slice(0, MAX_PALETTE_COLORS);
+}
+
+function getAllowedDigits(paletteLength: number): string {
+  return "0123456789ABCDEF".slice(0, Math.min(MAX_PALETTE_COLORS, Math.max(2, paletteLength)));
+}
+
+function sanitizeRow(row: unknown, logicalSize: number, paletteLength: number): string {
+  const allowed = getAllowedDigits(paletteLength);
+  const cleaned = String(row ?? "")
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, "")
+    .slice(0, logicalSize)
+    .padEnd(logicalSize, "0");
+
+  return cleaned
+    .split("")
+    .map((char) => (allowed.includes(char) ? char : "0"))
+    .join("");
+}
+
+function rowsToFrameIndices(rows: unknown, logicalSize: number, paletteLength: number): number[] {
+  const rawRows = Array.isArray(rows) ? rows : [];
+  const normalizedRows = Array.from({ length: logicalSize }, (_, index) =>
+    sanitizeRow(rawRows[index], logicalSize, paletteLength)
+  );
+
+  return normalizedRows.flatMap((row) =>
+    row.split("").map((char) => {
+      const value = parseInt(char, 16);
+      if (Number.isNaN(value)) return 0;
+      return Math.max(0, Math.min(value, paletteLength - 1));
+    })
+  );
+}
+
+type SpriteBlueprint = {
+  palette: string[];
+  characterSummary: string;
+  grounding: string;
+};
+
+type FrameRows = {
+  rows: string[];
+};
+
+async function generateBlueprint(
+  apiKey: string,
+  prompt: string,
   animationType: string,
   styleDesc: string,
   paletteDesc: string,
   facingDirection: string,
-  resolution: number,
-  poses: string[],
-): string {
-  const frameDescriptions = poses.map((pose, i) =>
-    `Frame ${i + 1}: ${pose}`
-  ).join("\n");
+  logicalSize: number,
+): Promise<SpriteBlueprint> {
+  const blueprintTool = {
+    type: "function",
+    function: {
+      name: "output_sprite_blueprint",
+      description: "Create a locked sprite blueprint with a shared palette and concise design notes",
+      parameters: {
+        type: "object",
+        properties: {
+          palette: {
+            type: "array",
+            items: { type: "string" },
+          },
+          characterSummary: { type: "string" },
+          grounding: { type: "string" },
+        },
+        required: ["palette", "characterSummary", "grounding"],
+        additionalProperties: false,
+      },
+    },
+  };
 
-  return `You are a pixel artist creating a ${resolution}x${resolution} sprite animation.
+  const blueprint = await callStructuredTool<SpriteBlueprint>(
+    apiKey,
+    "You are an expert retro pixel artist. Design one reusable sprite blueprint for an animated character. Keep it simple, readable, and suitable for a game sprite. Always use the provided tool.",
+    `Create a sprite blueprint for this character: ${prompt}.\nAnimation: ${animationType}.\nStyle: ${styleDesc}.\nPalette direction: ${paletteDesc}.\nFacing: ${facingDirection}.\nLogical drawing grid: ${logicalSize}x${logicalSize}.\n\nRules:\n- Full body visible.\n- Readable silhouette.\n- Max ${MAX_PALETTE_COLORS} colors total including transparency.\n- Palette index 0 is transparent.\n- Keep the summary concise and stable across all frames.`,
+    blueprintTool,
+    "output_sprite_blueprint",
+  );
 
-CHARACTER: ${characterPrompt}
-STYLE: ${styleDesc}
-PALETTE: ${paletteDesc}
-FACING: ${facingDirection}
-ANIMATION: ${animationType} cycle with ${poses.length} frames
-RESOLUTION: ${resolution}x${resolution} pixels per frame
-
-FRAME DESCRIPTIONS:
-${frameDescriptions}
-
-RULES:
-- Each frame is a ${resolution}x${resolution} pixel grid.
-- Use a shared color palette (max 16 colors). Index 0 is always transparent.
-- Output each frame as a flat array of palette indices, row by row, left to right, top to bottom.
-- The character must be clearly visible and centered in each frame.
-- Each frame MUST show visibly different limb/body positions matching the pose description.
-- Background pixels should be index 0 (transparent).
-- Make the character fill roughly 60-80% of the frame height.
-- Ensure smooth animation: each frame should flow naturally to the next.
-- The last frame should transition smoothly back to the first frame for looping.
-
-Return the result using the provided tool.`;
+  return {
+    palette: normalizePalette(blueprint.palette),
+    characterSummary: typeof blueprint.characterSummary === "string" && blueprint.characterSummary.trim()
+      ? blueprint.characterSummary.trim().slice(0, 220)
+      : prompt.trim().slice(0, 220),
+    grounding: typeof blueprint.grounding === "string" && blueprint.grounding.trim()
+      ? blueprint.grounding.trim().slice(0, 220)
+      : "feet near a stable ground line, centered in frame, readable silhouette",
+  };
 }
 
-// ── Server ──
+async function generateFrame(
+  apiKey: string,
+  blueprint: SpriteBlueprint,
+  animationType: string,
+  facingDirection: string,
+  logicalSize: number,
+  frameIndex: number,
+  totalFrames: number,
+  pose: string,
+): Promise<number[]> {
+  const frameTool = {
+    type: "function",
+    function: {
+      name: "output_sprite_frame",
+      description: "Output a single pixel-art frame as logical rows of palette-index hex digits",
+      parameters: {
+        type: "object",
+        properties: {
+          rows: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+        required: ["rows"],
+        additionalProperties: false,
+      },
+    },
+  };
+
+  const paletteLegend = blueprint.palette
+    .map((color, index) => `${index.toString(16).toUpperCase()}=${color}`)
+    .join(", ");
+  const allowedDigits = getAllowedDigits(blueprint.palette.length);
+
+  const userPrompt = `Create frame ${frameIndex + 1} of ${totalFrames} for a looping ${animationType} sprite animation.\n\nLocked character summary: ${blueprint.characterSummary}\nLocked grounding rules: ${blueprint.grounding}\nFacing: ${facingDirection}\nPose for this frame: ${pose}\nLogical frame size: ${logicalSize}x${logicalSize}\nPalette legend: ${paletteLegend}\nAllowed digits only: ${allowedDigits}\n\nHard rules:\n- Return exactly ${logicalSize} rows.\n- Each row must be exactly ${logicalSize} characters long.\n- Use only the allowed hex digits from the palette legend.\n- Index 0 means transparent background.\n- Character must be centered and fill most of the frame height.\n- Feet should stay near a consistent ground line unless airborne.\n- Arms, legs, torso, and head must visibly change according to the pose.\n- Make this frame clearly different from the adjacent frames in the cycle.\n- Do not add any explanation text. Use the tool only.`;
+
+  const attempt = async (promptOverride?: string) => {
+    const frame = await callStructuredTool<FrameRows>(
+      apiKey,
+      "You are an expert game sprite artist. Output one clean frame of pixel art as palette index rows. Always use the provided tool.",
+      promptOverride ?? userPrompt,
+      frameTool,
+      "output_sprite_frame",
+    );
+    return rowsToFrameIndices(frame.rows, logicalSize, blueprint.palette.length);
+  };
+
+  const firstPass = await attempt();
+  const opaquePixels = firstPass.reduce((count, value) => count + (value !== 0 ? 1 : 0), 0);
+  if (opaquePixels > logicalSize) return firstPass;
+
+  return attempt(`Retry the same frame because the previous output was too empty. Keep the character large and readable.\n${userPrompt}`);
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -186,130 +428,61 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const fw = parseInt(resolution);
-    const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), 6));
-    const styleDesc = style === "pixel-art" ? "pixel art" : style === "chibi" ? "chibi style" : "cel-shaded";
-    const paletteDesc = palette === "nes" ? "NES color palette (limited, retro)" : palette === "snes" ? "SNES palette (richer, 256 colors)" : palette === "gameboy" ? "Game Boy 4-shade green palette" : "vibrant colors";
+    const requestedSize = parseInt(resolution);
+    const outputSize = Number.isFinite(requestedSize) ? requestedSize : 32;
+    const logicalSize = getLogicalSize(outputSize);
+    const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
+    const styleDesc = style === "pixel-art" ? "retro pixel art" : style === "chibi" ? "cute chibi pixel art" : "clean cel-shaded pixel art";
+    const paletteDesc = palette === "nes"
+      ? "limited retro console colors"
+      : palette === "snes"
+      ? "richer 16-bit console colors"
+      : palette === "gameboy"
+      ? "4-shade handheld green palette"
+      : "cohesive vibrant game palette";
     const poses = getPosesForAnimation(animationType, totalFrames);
 
-    const pixelPrompt = buildPixelGridPrompt(
+    console.log(`Generating ${totalFrames}-frame ${animationType} animation at ${outputSize}x${outputSize} using logical ${logicalSize}x${logicalSize} frames...`);
+
+    const blueprint = await generateBlueprint(
+      LOVABLE_API_KEY,
       prompt.trim(),
       animationType,
       styleDesc,
       paletteDesc,
       facingDirection,
-      fw,
-      poses,
+      logicalSize,
     );
 
-    console.log(`Generating ${totalFrames}-frame ${animationType} animation at ${fw}x${fw} via text model...`);
-
-    const toolSchema = {
-      type: "function",
-      function: {
-        name: "output_sprite_data",
-        description: "Output the sprite animation as a color palette and per-frame pixel index grids",
-        parameters: {
-          type: "object",
-          properties: {
-            palette: {
-              type: "array",
-              description: "Array of hex color strings. Index 0 must be transparent (use '#00000000'). Max 16 colors.",
-              items: { type: "string" },
-            },
-            frames: {
-              type: "array",
-              description: `Array of ${totalFrames} frames. Each frame is a flat array of ${fw * fw} palette index integers, row by row top-to-bottom, left-to-right.`,
-              items: {
-                type: "array",
-                items: { type: "integer" },
-              },
-            },
-          },
-          required: ["palette", "frames"],
-          additionalProperties: false,
-        },
-      },
-    };
-
-    const response = await fetch(AI_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: TEXT_MODEL,
-        messages: [
-          { role: "system", content: "You are an expert pixel artist. You create sprite animations as structured pixel data. Always use the provided tool to output your result." },
-          { role: "user", content: pixelPrompt },
-        ],
-        tools: [toolSchema],
-        tool_choice: { type: "function", function: { name: "output_sprite_data" } },
-      }),
-    });
-
-    if (!response.ok) {
-      const txt = await response.text();
-      console.error(`AI API error ${response.status}:`, txt.slice(0, 500));
-      if (response.status === 429) throw new Error("RATE_LIMITED");
-      if (response.status === 402) throw new Error("CREDITS_EXHAUSTED");
-      throw new Error(`AI gateway returned ${response.status}`);
+    const frames: number[][] = [];
+    for (let index = 0; index < poses.length; index++) {
+      const frame = await generateFrame(
+        LOVABLE_API_KEY,
+        blueprint,
+        animationType,
+        facingDirection,
+        logicalSize,
+        index,
+        poses.length,
+        poses[index],
+      );
+      frames.push(frame);
     }
 
-    const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-
-    if (!toolCall?.function?.arguments) {
-      console.error("No tool call in response:", JSON.stringify(data.choices?.[0]?.message).slice(0, 500));
-      throw new Error("AI_NO_TOOL_CALL");
-    }
-
-    let spriteData: { palette: string[]; frames: number[][] };
-    try {
-      spriteData = JSON.parse(toolCall.function.arguments);
-    } catch (e) {
-      console.error("Failed to parse tool call args:", toolCall.function.arguments.slice(0, 500));
-      throw new Error("AI_PARSE_ERROR");
-    }
-
-    // Validate
-    if (!Array.isArray(spriteData.palette) || spriteData.palette.length < 2) {
-      throw new Error("AI_INVALID_PALETTE");
-    }
-    if (!Array.isArray(spriteData.frames) || spriteData.frames.length === 0) {
-      throw new Error("AI_NO_FRAMES");
-    }
-
-    // Ensure palette index 0 is transparent
-    if (!spriteData.palette[0]?.includes("0000") && spriteData.palette[0] !== "transparent") {
-      spriteData.palette.unshift("#00000000");
-      // Shift all frame indices up by 1
-      spriteData.frames = spriteData.frames.map(f => f.map(idx => idx + 1));
-    }
-
-    // Pad/trim frames to expected pixel count
-    const expectedPixels = fw * fw;
-    spriteData.frames = spriteData.frames.map(frame => {
-      if (frame.length >= expectedPixels) return frame.slice(0, expectedPixels);
-      return [...frame, ...new Array(expectedPixels - frame.length).fill(0)];
-    });
-
-    // Clamp indices to palette range
-    const maxIdx = spriteData.palette.length - 1;
-    spriteData.frames = spriteData.frames.map(frame =>
-      frame.map(idx => Math.max(0, Math.min(idx, maxIdx)))
-    );
-
-    console.log(`Generated ${spriteData.frames.length} frames with ${spriteData.palette.length}-color palette`);
+    console.log(`Generated ${frames.length} frames with ${blueprint.palette.length}-color palette`);
 
     return new Response(
       JSON.stringify({
         type: "pixel-data",
-        palette: spriteData.palette,
-        frames: spriteData.frames,
-        frameCount: spriteData.frames.length,
-        frameWidth: fw,
-        frameHeight: fw,
+        palette: blueprint.palette,
+        frames,
+        frameCount: frames.length,
+        frameWidth: outputSize,
+        frameHeight: outputSize,
+        logicalFrameWidth: logicalSize,
+        logicalFrameHeight: logicalSize,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
     console.error("generate-sprite error:", e);
@@ -318,16 +491,21 @@ serve(async (req) => {
     let status = 500;
     let userMsg = msg;
 
-    if (msg === "RATE_LIMITED") { status = 429; userMsg = "Rate limited. Please try again in a moment."; }
-    else if (msg === "CREDITS_EXHAUSTED") { status = 402; userMsg = "AI credits exhausted. Add funds in Settings > Workspace > Usage."; }
-    else if (msg === "AI_NO_TOOL_CALL") { status = 500; userMsg = "AI didn't return structured data. Try again."; }
-    else if (msg === "AI_PARSE_ERROR") { status = 500; userMsg = "AI returned invalid data. Try again with a simpler prompt."; }
-    else if (msg === "AI_INVALID_PALETTE") { status = 500; userMsg = "AI returned an invalid color palette. Try again."; }
-    else if (msg === "AI_NO_FRAMES") { status = 500; userMsg = "AI didn't generate any frames. Try again."; }
+    if (msg === "RATE_LIMITED") {
+      status = 429;
+      userMsg = "Rate limited. Please try again in a moment.";
+    } else if (msg === "CREDITS_EXHAUSTED") {
+      status = 402;
+      userMsg = "AI credits exhausted. Add funds in Settings > Workspace > Usage.";
+    } else if (msg === "AI_TRUNCATED") {
+      userMsg = "The AI response was truncated. Try again with a smaller sprite size or simpler prompt.";
+    } else if (msg === "AI_EMPTY_RESPONSE") {
+      userMsg = "The AI returned an empty response. Please try again.";
+    }
 
-    return new Response(
-      JSON.stringify({ error: userMsg }),
-      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: userMsg }), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
