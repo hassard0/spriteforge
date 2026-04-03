@@ -414,27 +414,55 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
   const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
   const ground = size - 4 - motion.airborneLift;
   const headSize = style === "chibi" ? 4 : 3;
-  const torsoW = style === "chibi" ? 6 : 5;
+  const bodyWidthOffset = recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0;
+  const torsoW = Math.max(4, (style === "chibi" ? 6 : 5) + bodyWidthOffset + (recipe.outfitStyle === "armor" ? 1 : 0));
   const torsoH = style === "chibi" ? 6 : 7;
   const torsoY = ground - 11 + motion.bob + motion.collapse;
   const headY = torsoY - headSize - 2 + motion.headOffset + motion.collapse;
-  const leftHipX = cx - 1;
-  const rightHipX = cx + 1;
+  const leftHipX = cx - 1 - Math.max(0, Math.floor(bodyWidthOffset / 2));
+  const rightHipX = cx + 1 + Math.max(0, Math.floor(bodyWidthOffset / 2));
   const shoulderY = torsoY + 1;
-  const leftShoulderX = cx - 2;
-  const rightShoulderX = cx + 2;
+  const leftShoulderX = cx - Math.max(2, Math.floor(torsoW / 2));
+  const rightShoulderX = cx + Math.max(2, Math.floor(torsoW / 2));
 
   if (recipe.features.includes("cape")) {
     fillTriangle(frame, size, [cx, torsoY + 1], [cx - 4, torsoY + 8], [cx + 4, torsoY + 8], roles.secondary);
   }
 
-  fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
-  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
-  fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+  if (recipe.outfitStyle === "dress") {
+    fillTriangle(frame, size, [cx, torsoY + 2], [cx - Math.max(4, Math.floor(torsoW / 2) + 1), ground], [cx + Math.max(4, Math.floor(torsoW / 2) + 1), ground], roles.outline);
+    fillTriangle(frame, size, [cx, torsoY + 3], [cx - Math.max(3, Math.floor(torsoW / 2)), ground - 1], [cx + Math.max(3, Math.floor(torsoW / 2)), ground - 1], roles.primary);
+  } else if (recipe.outfitStyle === "robe") {
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH + 1 - motion.squash + motion.stretch, roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 1 - motion.squash + motion.stretch), roles.primary);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + torsoH - 1, torsoW - 2, 1, roles.shadow);
+  } else {
+    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH - motion.squash + motion.stretch, roles.outline);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + 1, torsoW - 2, Math.max(1, torsoH - 2 - motion.squash + motion.stretch), roles.primary);
+    fillRect(frame, size, cx - Math.floor(torsoW / 2) + 1, torsoY + Math.max(1, torsoH - 3), torsoW - 2, 1, roles.shadow);
+  }
 
   fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, headSize * 2 + 1, roles.outline);
   fillRect(frame, size, cx - headSize + 1, headY + 1, Math.max(1, headSize * 2 - 1), Math.max(1, headSize * 2 - 1), roles.secondary);
+
+  if (recipe.hairStyle === "short") {
+    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
+  }
+  if (recipe.hairStyle === "long") {
+    fillRect(frame, size, cx - headSize + 1, headY + 1, headSize * 2 - 1, 2, roles.accent);
+    fillRect(frame, size, cx - headSize, headY + 3, 2, headSize + 1, roles.accent);
+    fillRect(frame, size, cx + headSize - 1, headY + 3, 2, headSize + 1, roles.accent);
+  }
+  if (recipe.hairStyle === "spiky") {
+    fillTriangle(frame, size, [cx - 2, headY + 1], [cx - 1, headY - 2], [cx, headY + 1], roles.accent);
+    fillTriangle(frame, size, [cx, headY + 1], [cx + 1, headY - 2], [cx + 2, headY + 1], roles.accent);
+  }
+
   drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye);
+
+  if (recipe.genderPresentation === "feminine") {
+    setPixel(frame, size, cx, headY + headSize + 2, roles.highlight);
+  }
 
   if (recipe.features.includes("helmet")) {
     fillRect(frame, size, cx - headSize, headY, headSize * 2 + 1, 2, roles.accent);
@@ -452,10 +480,12 @@ function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facin
     fillTriangle(frame, size, [cx + 2, torsoY + 2], [cx + 6 + motion.wingSwing, torsoY + 4], [cx + 3, torsoY + 7], roles.secondary);
   }
 
-  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
-  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
-  drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
-  drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+  if (recipe.outfitStyle !== "dress") {
+    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground, roles.outline, 2);
+    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground, roles.outline, 2);
+    drawLine(frame, size, leftHipX, torsoY + torsoH - 1, leftHipX + motion.legSwingA, ground - 1, roles.primary);
+    drawLine(frame, size, rightHipX, torsoY + torsoH - 1, rightHipX + motion.legSwingB, ground - 1, roles.primary);
+  }
 
   const leadHandX = mirrorX(rightShoulderX + motion.armSwingA, cx, facing);
   const leadHandY = shoulderY + 4 + Math.abs(motion.armSwingA) / 2;
