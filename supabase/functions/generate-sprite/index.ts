@@ -56,9 +56,10 @@ function normalizeFrameCount(frameCount: number): 4 | 6 {
 
 function getLogicalSize(requestedSize: number): number {
   if (requestedSize <= 16) return 16;
-  if (requestedSize <= 32) return 24;
-  if (requestedSize <= 64) return 24;
-  return 32;
+  if (requestedSize <= 32) return 32;
+  if (requestedSize <= 48) return 48;
+  if (requestedSize <= 64) return 64;
+  return Math.min(requestedSize, 128);
 }
 
 function dedupePalette(colors: string[]) {
