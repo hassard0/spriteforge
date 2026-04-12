@@ -55,6 +55,63 @@ const POSES: { value: SpritePose; label: string }[] = [
   { value: 'charging', label: 'Charging' },
 ];
 
+/** Extract palette and pixel data from an image using canvas */
+function extractPixelData(
+  imageData: string,
+  frameCount: number,
+  frameWidth: number,
+  frameHeight: number,
+): Promise<{ palette: string[]; frames: number[][] }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+
+      const actualFrameW = Math.round(img.naturalWidth / frameCount);
+      const actualFrameH = img.naturalHeight;
+
+      const colorMap = new Map<string, number>();
+      colorMap.set('transparent', 0);
+      const palette: string[] = ['transparent'];
+      const frames: number[][] = [];
+
+      for (let f = 0; f < frameCount; f++) {
+        const framePixels: number[] = [];
+        for (let y = 0; y < frameHeight; y++) {
+          for (let x = 0; x < frameWidth; x++) {
+            const srcX = Math.floor((x / frameWidth) * actualFrameW) + f * actualFrameW;
+            const srcY = Math.floor((y / frameHeight) * actualFrameH);
+            const pixel = ctx.getImageData(srcX, srcY, 1, 1).data;
+
+            if (pixel[3] < 128) {
+              framePixels.push(0);
+              continue;
+            }
+
+            const hex = `#${pixel[0].toString(16).padStart(2, '0')}${pixel[1].toString(16).padStart(2, '0')}${pixel[2].toString(16).padStart(2, '0')}`;
+            let idx = colorMap.get(hex);
+            if (idx === undefined) {
+              idx = palette.length;
+              palette.push(hex);
+              colorMap.set(hex, idx);
+            }
+            framePixels.push(idx);
+          }
+        }
+        frames.push(framePixels);
+      }
+
+      resolve({ palette, frames });
+    };
+    img.onerror = () => resolve({ palette: ['transparent'], frames: [] });
+    img.src = imageData;
+  });
+}
+
 export default function GeneratePage() {
   const { addSprite } = useSprites();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +155,7 @@ export default function GeneratePage() {
 
     let progressVal = 0;
     const progressInterval = setInterval(() => {
-      progressVal = Math.min(progressVal + 0.3, 90);
+      progressVal = Math.min(progressVal + 0.5, 90);
       setProgress(progressVal);
     }, 500);
 
@@ -120,23 +177,40 @@ export default function GeneratePage() {
         throw new Error(errorMsg);
       }
 
-      if (data?.type !== 'pixel-data' || !Array.isArray(data?.frames) || data.frames.length === 0) {
-        throw new Error('No sprite data generated. Try again.');
-      }
-
-      setProgress(95);
+      setProgress(92);
 
       const fw = Number(data.frameWidth);
       const fh = Number(data.frameHeight);
+      const fc = Number(data.frameCount) || 1;
 
-      const spriteSheetDataUrl = renderPixelSpriteSheet({
-        palette: data.palette,
-        frames: data.frames,
-        frameWidth: fw,
-        frameHeight: fh,
-        logicalFrameWidth: Number(data.logicalFrameWidth) || fw,
-        logicalFrameHeight: Number(data.logicalFrameHeight) || fh,
-      });
+      let spriteImageData: string;
+      let palette: string[] | undefined;
+      let pixelData: number[][] | undefined;
+
+      if (data.type === 'generated-image') {
+        // New flow: AI generated an actual image
+        spriteImageData = data.imageData;
+
+        // Extract pixel data from the image client-side
+        setProgress(95);
+        const extracted = await extractPixelData(spriteImageData, fc, fw, fh);
+        palette = extracted.palette.slice(0, 64); // Cap palette display
+        pixelData = extracted.frames;
+      } else if (data.type === 'pixel-data') {
+        // Legacy flow: raw pixel indices
+        spriteImageData = renderPixelSpriteSheet({
+          palette: data.palette,
+          frames: data.frames,
+          frameWidth: fw,
+          frameHeight: fh,
+          logicalFrameWidth: Number(data.logicalFrameWidth) || fw,
+          logicalFrameHeight: Number(data.logicalFrameHeight) || fh,
+        });
+        palette = data.palette;
+        pixelData = data.frames;
+      } else {
+        throw new Error('Unexpected response format');
+      }
 
       setProgress(100);
 
@@ -147,12 +221,12 @@ export default function GeneratePage() {
         gridSize,
         viewingAngle,
         pose,
-        frameCount: data.frames.length,
+        frameCount: fc,
         frameWidth: fw,
         frameHeight: fh,
-        imageData: spriteSheetDataUrl,
-        palette: data.palette,
-        pixelData: data.frames,
+        imageData: spriteImageData,
+        palette,
+        pixelData,
         createdAt: new Date().toISOString(),
         collectionIds: [],
         tags: [],
@@ -161,8 +235,8 @@ export default function GeneratePage() {
 
       setResult(sprite);
       setJsonOutput(JSON.stringify({
-        palette: data.palette,
-        frames: data.frames,
+        palette,
+        frames: pixelData,
         gridSize,
         viewingAngle,
         pose,
@@ -223,7 +297,6 @@ export default function GeneratePage() {
         {/* Input Panel */}
         <div className="space-y-5">
           <div className="p-4 bg-card rounded-lg pixel-border space-y-4">
-            {/* Image Upload */}
             <label className="text-xs text-muted-foreground uppercase tracking-wider">Reference Sprite</label>
             <input
               ref={fileInputRef}
@@ -252,7 +325,6 @@ export default function GeneratePage() {
               )}
             </div>
 
-            {/* Controls */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Grid Size</label>
@@ -288,7 +360,7 @@ export default function GeneratePage() {
               <label className="text-[10px] text-muted-foreground uppercase mb-2 block">
                 Frames: <span className="text-primary">{frameCount}</span>
               </label>
-              <Slider value={[frameCount]} onValueChange={([v]) => setFrameCount(v)} min={1} max={8} step={1} />
+              <Slider value={[frameCount]} onValueChange={([v]) => setFrameCount(v)} min={1} max={4} step={1} />
             </div>
           </div>
 
@@ -298,13 +370,13 @@ export default function GeneratePage() {
             className="w-full h-12 font-pixel text-xs gap-2 glow-box-green"
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {generating ? 'ANALYZING...' : 'ANALYZE & GENERATE'}
+            {generating ? 'GENERATING...' : 'ANALYZE & GENERATE'}
           </Button>
 
           {generating && (
             <div className="space-y-1">
               <Progress value={progress} className="h-2" />
-              <p className="text-[10px] text-muted-foreground text-center">{Math.round(progress)}% — AI is analyzing your sprite...</p>
+              <p className="text-[10px] text-muted-foreground text-center">{Math.round(progress)}% — AI is generating your sprite...</p>
             </div>
           )}
         </div>
@@ -338,24 +410,22 @@ export default function GeneratePage() {
                 frameHeight={result.frameHeight}
               />
 
-              {/* Palette Display */}
-              {result.palette && (
+              {result.palette && result.palette.length > 1 && (
                 <div>
-                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">EXTRACTED PALETTE</h3>
+                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">EXTRACTED PALETTE ({result.palette.length - 1} colors)</h3>
                   <div className="flex flex-wrap gap-1">
-                    {result.palette.map((color, i) => (
+                    {result.palette.filter(c => c !== 'transparent').map((color, i) => (
                       <div
                         key={i}
                         className="w-6 h-6 rounded border border-border"
-                        style={{ backgroundColor: color === 'transparent' ? 'transparent' : color }}
-                        title={`${i}: ${color}`}
+                        style={{ backgroundColor: color }}
+                        title={color}
                       />
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* JSON Output */}
               {jsonOutput && (
                 <div>
                   <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">JSON DATA</h3>
@@ -371,7 +441,7 @@ export default function GeneratePage() {
                 <Upload className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">Upload a reference sprite to get started</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">AI will analyze colors, cut out the sprite, and generate pixel data</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">AI will analyze your sprite and generate pixel art in the selected pose</p>
             </div>
           )}
         </div>
