@@ -36,7 +36,7 @@ serve(async (req) => {
 TASK:
 1. Analyze the reference image to identify the character, their colors, and key visual features.
 2. Extract a color palette (max 16 colors including transparent as index 0).
-3. Generate ${frames} frame(s) of pixel art on a ${size}x${size} grid showing the character in the specified pose and viewing angle.
+3. Generate ${frames} frame(s) of pixel art on a ${logicalSize}x${logicalSize} grid showing the character in the specified pose and viewing angle.
 
 OUTPUT FORMAT (strict JSON, no markdown):
 {
@@ -47,18 +47,18 @@ OUTPUT FORMAT (strict JSON, no markdown):
 
 RULES:
 - palette[0] MUST be "transparent" (background)
-- Each frame is a flat array of ${size * size} palette indices (row by row, left to right, top to bottom)
+- Each frame is a flat array of EXACTLY ${logicalSize * logicalSize} palette indices (row by row, left to right, top to bottom)
+- You MUST output every single pixel index. Do NOT truncate, abbreviate, or use "..." — output the full array.
 - The sprite should be centered in the grid with transparent padding
 - Use the colors from the reference image as closely as possible
 - For animation frames, show progressive motion (e.g., for walking: legs alternate, arms swing)
 - The character should face the specified viewing angle
 - Match the pose/action specified
-- Keep the pixel art style clean with clear outlines
-- For larger grids (128+), add more detail like shading, highlights, and anti-aliasing with palette colors
+- Keep the pixel art style clean with clear outlines and good use of all palette colors
 
 VIEWING ANGLE: ${viewingAngle}
 POSE/ACTION: ${pose}
-GRID: ${size}x${size}
+GRID: ${logicalSize}x${logicalSize} (${logicalSize * logicalSize} pixels per frame)
 FRAMES: ${frames}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
