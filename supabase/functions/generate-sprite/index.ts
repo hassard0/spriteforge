@@ -69,6 +69,8 @@ FRAMES: ${frames}`;
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
+        max_tokens: 8192,
+        temperature: 0.7,
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -76,7 +78,7 @@ FRAMES: ${frames}`;
             content: [
               {
                 type: "text",
-                text: `Generate a ${logicalSize}x${logicalSize} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON with the complete pixel arrays (${logicalSize * logicalSize} indices per frame).`,
+                text: `Generate a ${logicalSize}x${logicalSize} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON with the complete pixel arrays (${logicalSize * logicalSize} indices per frame). Do NOT truncate.`,
               },
               {
                 type: "image_url",
