@@ -5,839 +5,179 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const MAX_GENERATED_FRAMES = 6;
-const MAX_PALETTE_COLORS = 8;
-
-type Archetype = "humanoid" | "canine" | "slime" | "bird" | "robot" | "skeleton";
-type Accessory = "none" | "sword" | "shield" | "staff";
-type Expression = "neutral" | "cute" | "happy" | "angry";
-type Feature = "ears" | "tail" | "cape" | "helmet" | "hat" | "horns" | "spots" | "wings" | "antenna";
-type FacingDirection = "left" | "right" | "up" | "down";
-type AnimationType = "idle" | "walk" | "run" | "attack" | "jump" | "death";
-type PaletteType = "nes" | "snes" | "gameboy" | "custom";
-type SpriteStyle = "pixel-art" | "chibi" | "cel-shaded";
-type BodyType = "slim" | "average" | "stocky";
-type GenderPresentation = "neutral" | "feminine" | "masculine";
-type HairStyle = "none" | "short" | "long" | "spiky";
-type OutfitStyle = "tunic" | "robe" | "armor" | "dress";
-
-type SpriteRecipe = {
-  archetype: Archetype;
-  palette: string[];
-  features: Feature[];
-  accessory: Accessory;
-  expression: Expression;
-  bodyType: BodyType;
-  genderPresentation: GenderPresentation;
-  hairStyle: HairStyle;
-  outfitStyle: OutfitStyle;
-  summary: string;
-};
-
-type MotionState = {
-  bob: number;
-  airborneLift: number;
-  torsoTilt: number;
-  armSwingA: number;
-  armSwingB: number;
-  legSwingA: number;
-  legSwingB: number;
-  headOffset: number;
-  tailSwing: number;
-  wingSwing: number;
-  squash: number;
-  stretch: number;
-  collapse: number;
-};
-
-function normalizeFrameCount(frameCount: number): 4 | 6 {
-  return frameCount <= 4 ? 4 : 6;
-}
-
-function getLogicalSize(requestedSize: number): number {
-  if (requestedSize <= 16) return 16;
-  if (requestedSize <= 32) return 32;
-  if (requestedSize <= 48) return 48;
-  if (requestedSize <= 64) return 64;
-  return Math.min(requestedSize, 128);
-}
-
-function dedupePalette(colors: string[]) {
-  return Array.from(new Set(colors)).slice(0, MAX_PALETTE_COLORS);
-}
-
-function defaultPaletteSeed(palette: PaletteType): string[] {
-  if (palette === "gameboy") {
-    return ["#00000000", "#0F380F", "#306230", "#8BAC0F", "#9BBC0F", "#E0F8CF", "#1A1A1A", "#FFFFFF"];
-  }
-  if (palette === "nes") {
-    return ["#00000000", "#0F0F1B", "#3F3F74", "#6B6B6B", "#A7A7A7", "#D9A066", "#7D3B3B", "#F4F4F4"];
-  }
-  if (palette === "snes") {
-    return ["#00000000", "#1B1C2E", "#4D2B32", "#A85D5D", "#E09F6B", "#7DB37D", "#5B6EE1", "#F7F4EA"];
-  }
-  return ["#00000000", "#1F2430", "#5C6773", "#C47C4D", "#E7B97A", "#6BA368", "#D95763", "#F5F7FA"];
-}
-
-function detectArchetype(prompt: string): Archetype {
-  const input = prompt.toLowerCase();
-  if (/(dog|wolf|fox|corgi|cat|lion|tiger|bear|canine|feline)/.test(input)) return "canine";
-  if (/(bird|crow|eagle|owl|chicken|duck|penguin)/.test(input)) return "bird";
-  if (/(slime|blob|goo|gel|jelly)/.test(input)) return "slime";
-  if (/(robot|mech|android|cyborg|machine)/.test(input)) return "robot";
-  if (/(skeleton|undead|bones)/.test(input)) return "skeleton";
-  return "humanoid";
-}
-
-function detectFeatures(prompt: string, archetype: Archetype): Feature[] {
-  const input = prompt.toLowerCase();
-  const features = new Set<Feature>();
-
-  if (/(tail|corgi|fox|wolf|cat|lion|tiger|bird)/.test(input) || archetype === "canine") features.add("tail");
-  if (/(ear|corgi|cat|fox|wolf|rabbit|bunny)/.test(input) || archetype === "canine") features.add("ears");
-  if (/(cape|cloak)/.test(input)) features.add("cape");
-  if (/(helmet|armor|armour)/.test(input)) features.add("helmet");
-  if (/(hat|wizard|witch)/.test(input)) features.add("hat");
-  if (/(horn|demon|devil)/.test(input)) features.add("horns");
-  if (/(spot|spotted|patch)/.test(input)) features.add("spots");
-  if (/(wing|angel|bat)/.test(input) || archetype === "bird") features.add("wings");
-  if (/(antenna|alien)/.test(input) || archetype === "robot") features.add("antenna");
-
-  return Array.from(features);
-}
-
-function detectAccessory(prompt: string): Accessory {
-  const input = prompt.toLowerCase();
-  if (/(sword|blade|katana)/.test(input)) return "sword";
-  if (/(shield|buckler)/.test(input)) return "shield";
-  if (/(staff|wand|spear)/.test(input)) return "staff";
-  return "none";
-}
-
-function detectExpression(prompt: string): Expression {
-  const input = prompt.toLowerCase();
-  if (/(cute|adorable|smile|happy|joy)/.test(input)) return "happy";
-  if (/(angry|rage|mad|fierce)/.test(input)) return "angry";
-  if (/(chibi|baby)/.test(input)) return "cute";
-  return "neutral";
-}
-
-function detectBodyType(prompt: string): BodyType {
-  const input = prompt.toLowerCase();
-  if (/(fat|heavy|plus size|plus-size|stocky|chubby|wide|broad)/.test(input)) return "stocky";
-  if (/(slim|thin|lean|skinny|lanky)/.test(input)) return "slim";
-  return "average";
-}
-
-function detectGenderPresentation(prompt: string): GenderPresentation {
-  const input = prompt.toLowerCase();
-  if (/(woman|girl|female|lady|queen|princess|witch|sorceress)/.test(input)) return "feminine";
-  if (/(man|boy|male|king|prince|wizard|barbarian|gentleman|bearded)/.test(input)) return "masculine";
-  return "neutral";
-}
-
-function detectHairStyle(prompt: string, genderPresentation: GenderPresentation): HairStyle {
-  const input = prompt.toLowerCase();
-  if (/(bald|shaved head)/.test(input)) return "none";
-  if (/(mohawk|spiky hair|spiked hair)/.test(input)) return "spiky";
-  if (/(long hair|braid|ponytail|pigtail|flowing hair)/.test(input)) return "long";
-  if (genderPresentation === "feminine") return "long";
-  return "short";
-}
-
-function detectOutfitStyle(prompt: string): OutfitStyle {
-  const input = prompt.toLowerCase();
-  if (/(armor|armour|knight|paladin|soldier)/.test(input)) return "armor";
-  if (/(robe|wizard|witch|mage|priest)/.test(input)) return "robe";
-  if (/(dress|gown|skirt|princess|queen)/.test(input)) return "dress";
-  return "tunic";
-}
-
-function detectOutfitColors(prompt: string): { primary: string; shadow: string } | null {
-  const input = prompt.toLowerCase();
-  if (/(blue|azure|navy|ice|water|frost)/.test(input)) return { primary: "#4F7DFF", shadow: "#2F4FA8" };
-  if (/(green|nature|forest|poison)/.test(input)) return { primary: "#3FAE5A", shadow: "#2F7A43" };
-  if (/(red|fire|lava|flame)/.test(input)) return { primary: "#D95763", shadow: "#8C3740" };
-  if (/(gold|yellow|sun)/.test(input)) return { primary: "#D6A63C", shadow: "#8C6A23" };
-  if (/(purple|magic|arcane)/.test(input)) return { primary: "#8A63D2", shadow: "#5A3D90" };
-  if (/(pink|rose)/.test(input)) return { primary: "#D97AA8", shadow: "#8C4D6C" };
-  if (/(black|dark)/.test(input)) return { primary: "#4B5563", shadow: "#1F2937" };
-  if (/(white|ivory)/.test(input)) return { primary: "#D6DBE4", shadow: "#9AA3B2" };
-  if (/(brown|leather|wood)/.test(input)) return { primary: "#8B5E3C", shadow: "#5D3C24" };
-  if (/(silver|steel|metal)/.test(input)) return { primary: "#AEB7C4", shadow: "#707A8A" };
-  if (/(orange|amber)/.test(input)) return { primary: "#D97A34", shadow: "#8C4C1E" };
-  return null;
-}
-
-function detectSkinTone(prompt: string): string {
-  const input = prompt.toLowerCase();
-  if (/(dark skin|brown skin|black skin|deep skin)/.test(input)) return "#8D5A3A";
-  if (/(olive skin|tan skin|tan)/.test(input)) return "#C68642";
-  if (/(pale skin|fair skin|pale|fair)/.test(input)) return "#F1C27D";
-  return "#D9A066";
-}
-
-function detectHairColor(prompt: string): string {
-  const input = prompt.toLowerCase();
-  if (/(blonde|blond|golden hair|yellow hair)/.test(input)) return "#D7B25C";
-  if (/(black hair|dark hair|brunette)/.test(input)) return "#3A2C25";
-  if (/(brown hair|auburn)/.test(input)) return "#7A4B2E";
-  if (/(red hair|ginger)/.test(input)) return "#B85438";
-  if (/(white hair|gray hair|grey hair|silver hair)/.test(input)) return "#D7DAE0";
-  if (/(pink hair)/.test(input)) return "#D97AA8";
-  if (/(blue hair)/.test(input)) return "#6F8BFF";
-  return "#6B4B3A";
-}
-
-function promptTint(prompt: string): string[] {
-  const colors = detectOutfitColors(prompt);
-  return colors ? [colors.primary, colors.shadow] : [];
-}
-
-function buildHumanoidPalette(prompt: string, paletteType: PaletteType): string[] {
-  if (paletteType === "gameboy") return defaultPaletteSeed(paletteType);
-
-  const base = defaultPaletteSeed(paletteType);
-  const outfitColors = detectOutfitColors(prompt);
-  const bodyColor = outfitColors?.primary ?? base[2];
-  const bodyShadow = outfitColors?.shadow ?? base[3];
-  const skinTone = detectSkinTone(prompt);
-  const hairColor = detectHairColor(prompt);
-
-  return dedupePalette(["#00000000", base[1], bodyColor, bodyShadow, skinTone, hairColor, base[6], base[7]]);
-}
-
-function buildRecipe(prompt: string, paletteType: PaletteType): SpriteRecipe {
-  const archetype = detectArchetype(prompt);
-  const genderPresentation = detectGenderPresentation(prompt);
-  const palette = archetype === "humanoid"
-    ? buildHumanoidPalette(prompt, paletteType)
-    : dedupePalette(["#00000000", ...promptTint(prompt), ...defaultPaletteSeed(paletteType)]);
-
-  return {
-    archetype,
-    palette,
-    features: detectFeatures(prompt, archetype),
-    accessory: detectAccessory(prompt),
-    expression: detectExpression(prompt),
-    bodyType: detectBodyType(prompt),
-    genderPresentation,
-    hairStyle: detectHairStyle(prompt, genderPresentation),
-    outfitStyle: detectOutfitStyle(prompt),
-    summary: prompt.trim().slice(0, 200),
-  };
-}
-
-function createFrame(size: number): number[] {
-  return Array(size * size).fill(0);
-}
-
-function setPixel(frame: number[], size: number, x: number, y: number, color: number) {
-  if (x < 0 || y < 0 || x >= size || y >= size) return;
-  frame[y * size + x] = color;
-}
-
-function fillRect(frame: number[], size: number, x: number, y: number, w: number, h: number, color: number) {
-  for (let iy = 0; iy < h; iy++) {
-    for (let ix = 0; ix < w; ix++) setPixel(frame, size, x + ix, y + iy, color);
-  }
-}
-
-function fillEllipse(frame: number[], size: number, cx: number, cy: number, rx: number, ry: number, color: number) {
-  for (let y = -ry; y <= ry; y++) {
-    for (let x = -rx; x <= rx; x++) {
-      const nx = x / Math.max(1, rx);
-      const ny = y / Math.max(1, ry);
-      if ((nx * nx) + (ny * ny) <= 1.05) setPixel(frame, size, cx + x, cy + y, color);
-    }
-  }
-}
-
-function drawLine(frame: number[], size: number, x0: number, y0: number, x1: number, y1: number, color: number, thickness = 1) {
-  let startX = Math.round(x0);
-  let startY = Math.round(y0);
-  const endX = Math.round(x1);
-  const endY = Math.round(y1);
-  const dx = Math.abs(endX - startX);
-  const sx = startX < endX ? 1 : -1;
-  const dy = -Math.abs(endY - startY);
-  const sy = startY < endY ? 1 : -1;
-  let err = dx + dy;
-
-  while (true) {
-    for (let tx = -Math.floor(thickness / 2); tx <= Math.floor(thickness / 2); tx++) {
-      for (let ty = -Math.floor(thickness / 2); ty <= Math.floor(thickness / 2); ty++) {
-        setPixel(frame, size, startX + tx, startY + ty, color);
-      }
-    }
-    if (startX === endX && startY === endY) break;
-    const e2 = 2 * err;
-    if (e2 >= dy) {
-      err += dy;
-      startX += sx;
-    }
-    if (e2 <= dx) {
-      err += dx;
-      startY += sy;
-    }
-  }
-}
-
-function fillTriangle(frame: number[], size: number, a: [number, number], b: [number, number], c: [number, number], color: number) {
-  const minX = Math.floor(Math.min(a[0], b[0], c[0]));
-  const maxX = Math.ceil(Math.max(a[0], b[0], c[0]));
-  const minY = Math.floor(Math.min(a[1], b[1], c[1]));
-  const maxY = Math.ceil(Math.max(a[1], b[1], c[1]));
-  const area = (p1: [number, number], p2: [number, number], p3: [number, number]) => (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1]);
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      const p: [number, number] = [x, y];
-      const w1 = area(p, b, c);
-      const w2 = area(a, p, c);
-      const w3 = area(a, b, p);
-      const hasNeg = w1 < 0 || w2 < 0 || w3 < 0;
-      const hasPos = w1 > 0 || w2 > 0 || w3 > 0;
-      if (!(hasNeg && hasPos)) setPixel(frame, size, x, y, color);
-    }
-  }
-}
-
-function mirrorX(x: number, center: number, facing: FacingDirection) {
-  return facing === "left" ? center - (x - center) : x;
-}
-
-function paletteRoles(palette: string[]) {
-  return {
-    outline: Math.min(1, palette.length - 1),
-    primary: Math.min(2, palette.length - 1),
-    shadow: Math.min(3, palette.length - 1),
-    secondary: Math.min(4, palette.length - 1),
-    accent: Math.min(5, palette.length - 1),
-    eye: Math.min(6, palette.length - 1),
-    highlight: Math.min(7, palette.length - 1),
-  };
-}
-
-function getMotionState(animationType: AnimationType, frameIndex: number, frameCount: number, s: number): MotionState {
-  const phase = (frameIndex / frameCount) * Math.PI * 2;
-  const wave = Math.sin(phase);
-  const wave2 = Math.sin(phase + Math.PI);
-
-  if (animationType === "idle") {
-    return { bob: Math.round(wave * 0.5 * s), airborneLift: 0, torsoTilt: 0, armSwingA: 0, armSwingB: 0, legSwingA: 0, legSwingB: 0, headOffset: Math.round(wave * 0.5 * s), tailSwing: Math.round(wave * 1.5 * s), wingSwing: Math.round(wave * 1.5 * s), squash: 0, stretch: 0, collapse: 0 };
-  }
-  if (animationType === "walk") {
-    return { bob: Math.round(Math.abs(wave) * 1 * s), airborneLift: 0, torsoTilt: 0, armSwingA: Math.round(wave * 2 * s), armSwingB: Math.round(wave2 * 2 * s), legSwingA: Math.round(wave * 2 * s), legSwingB: Math.round(wave2 * 2 * s), headOffset: 0, tailSwing: Math.round(wave * 2 * s), wingSwing: Math.round(wave * 2 * s), squash: 0, stretch: 0, collapse: 0 };
-  }
-  if (animationType === "run") {
-    return { bob: Math.round(Math.abs(wave) * 2 * s), airborneLift: wave > 0.2 ? Math.round(2 * s) : 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(wave * 3 * s), armSwingB: Math.round(wave2 * 3 * s), legSwingA: Math.round(wave * 3 * s), legSwingB: Math.round(wave2 * 3 * s), headOffset: 0, tailSwing: Math.round(wave * 3 * s), wingSwing: Math.round(wave * 3 * s), squash: 0, stretch: Math.round(1 * s), collapse: 0 };
-  }
-  if (animationType === "jump") {
-    const presets = frameCount === 4
-      ? [
-          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
-          { bob: -1, airborneLift: 2, squash: 0, stretch: 2 },
-          { bob: -2, airborneLift: 4, squash: 0, stretch: 2 },
-          { bob: 0, airborneLift: 1, squash: 1, stretch: 0 },
-        ]
-      : [
-          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
-          { bob: -1, airborneLift: 1, squash: 1, stretch: 1 },
-          { bob: -2, airborneLift: 3, squash: 0, stretch: 2 },
-          { bob: -2, airborneLift: 4, squash: 0, stretch: 2 },
-          { bob: -1, airborneLift: 2, squash: 0, stretch: 1 },
-          { bob: 0, airborneLift: 0, squash: 2, stretch: 0 },
-        ];
-    const preset = presets[frameIndex] ?? presets[0];
-    return { bob: Math.round(preset.bob * s), airborneLift: Math.round(preset.airborneLift * s), torsoTilt: 0, armSwingA: Math.round(1 * s), armSwingB: Math.round(-1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(3 * s), squash: Math.round(preset.squash * s), stretch: Math.round(preset.stretch * s), collapse: 0 };
-  }
-  if (animationType === "attack") {
-    const presets = frameCount === 4
-      ? [
-          { torsoTilt: -1, armSwingA: -3, armSwingB: 1 },
-          { torsoTilt: 0, armSwingA: -1, armSwingB: 1 },
-          { torsoTilt: 2, armSwingA: 4, armSwingB: -1 },
-          { torsoTilt: 0, armSwingA: 1, armSwingB: 0 },
-        ]
-      : [
-          { torsoTilt: -1, armSwingA: -2, armSwingB: 1 },
-          { torsoTilt: -1, armSwingA: -4, armSwingB: 2 },
-          { torsoTilt: 0, armSwingA: -1, armSwingB: 1 },
-          { torsoTilt: 2, armSwingA: 5, armSwingB: -2 },
-          { torsoTilt: 1, armSwingA: 3, armSwingB: -1 },
-          { torsoTilt: 0, armSwingA: 0, armSwingB: 0 },
-        ];
-    const preset = presets[frameIndex] ?? presets[0];
-    return { bob: 0, airborneLift: 0, torsoTilt: Math.round(preset.torsoTilt * s), armSwingA: Math.round(preset.armSwingA * s), armSwingB: Math.round(preset.armSwingB * s), legSwingA: 0, legSwingB: 0, headOffset: 0, tailSwing: Math.round(1 * s), wingSwing: Math.round(1 * s), squash: 0, stretch: 0, collapse: 0 };
-  }
-  const collapse = Math.round((frameIndex / Math.max(1, frameCount - 1)) * 8 * s);
-  return { bob: 0, airborneLift: 0, torsoTilt: Math.round(1 * s), armSwingA: Math.round(-1 * s), armSwingB: Math.round(1 * s), legSwingA: Math.round(-1 * s), legSwingB: Math.round(1 * s), headOffset: 0, tailSwing: 0, wingSwing: 0, squash: 0, stretch: 0, collapse };
-}
-
-function drawEyes(frame: number[], size: number, recipe: SpriteRecipe, cx: number, y: number, facing: FacingDirection, color: number, s: number) {
-  const gap = Math.max(1, Math.round(1 * s));
-  if (recipe.expression === "cute") {
-    fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
-    fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
-    return;
-  }
-  if (recipe.expression === "angry") {
-    const bw = Math.max(1, Math.round(s * 0.8));
-    drawLine(frame, size, mirrorX(cx - gap * 2, cx, facing), y, mirrorX(cx - gap, cx, facing), y - Math.round(s), color, bw);
-    drawLine(frame, size, mirrorX(cx + gap * 2, cx, facing), y - Math.round(s), mirrorX(cx + gap, cx, facing), y, color, bw);
-    return;
-  }
-  fillRect(frame, size, mirrorX(cx - gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
-  fillRect(frame, size, mirrorX(cx + gap, cx, facing), y, Math.max(1, Math.round(s * 0.6)), Math.max(1, Math.round(s * 0.6)), color);
-}
-
-function drawAccessory(frame: number[], size: number, recipe: SpriteRecipe, handX: number, handY: number, facing: FacingDirection, roles: ReturnType<typeof paletteRoles>, s: number) {
-  if (recipe.accessory === "none") return;
-  const dir = facing === "left" ? -1 : 1;
-  const th = Math.max(1, Math.round(s));
-  if (recipe.accessory === "sword") {
-    drawLine(frame, size, handX, handY, handX + Math.round(4 * s * dir), handY - Math.round(4 * s), roles.outline, th);
-    drawLine(frame, size, handX, handY, handX + Math.round(3 * s * dir), handY - Math.round(3 * s), roles.highlight, Math.max(1, th - 1));
-    fillRect(frame, size, handX + Math.round(dir * s * 0.5), handY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
-    return;
-  }
-  if (recipe.accessory === "staff") {
-    drawLine(frame, size, handX, handY + Math.round(s), handX + Math.round(1 * s * dir), handY - Math.round(5 * s), roles.outline, th);
-    fillEllipse(frame, size, handX + Math.round(1 * s * dir), handY - Math.round(5 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
-    return;
-  }
-  if (recipe.accessory === "shield") {
-    const sw = Math.round(3 * s);
-    const sh = Math.round(4 * s);
-    fillRect(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), sw, sh, roles.secondary);
-    drawLine(frame, size, handX - Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), handX + Math.round(s) - (dir === -1 ? sw : 0), handY - Math.round(2 * s), roles.outline, th);
-  }
-}
-
-function getDetailTier(size: number) {
-  if (size >= 112) return 3;
-  if (size >= 72) return 2;
-  if (size >= 48) return 1;
-  return 0;
-}
-
-function drawSegmentedLimb(
-  frame: number[],
-  size: number,
-  startX: number,
-  startY: number,
-  midX: number,
-  midY: number,
-  endX: number,
-  endY: number,
-  outlineColor: number,
-  fillColor: number,
-  thickness: number,
-  jointColor: number,
-  extremityW = 0,
-  extremityH = 0,
-) {
-  drawLine(frame, size, startX, startY, midX, midY, outlineColor, thickness + 1);
-  drawLine(frame, size, midX, midY, endX, endY, outlineColor, thickness + 1);
-  drawLine(frame, size, startX, startY, midX, midY, fillColor, thickness);
-  drawLine(frame, size, midX, midY, endX, endY, fillColor, thickness);
-
-  const jointRadius = Math.max(1, Math.floor(thickness / 2));
-  fillEllipse(frame, size, midX, midY, jointRadius + 1, jointRadius + 1, outlineColor);
-  fillEllipse(frame, size, midX, midY, jointRadius, jointRadius, jointColor);
-
-  if (extremityW > 0 && extremityH > 0) {
-    const left = endX - Math.floor(extremityW / 2);
-    const top = endY - Math.floor(extremityH / 2);
-    fillRect(frame, size, left, top, extremityW, extremityH, outlineColor);
-    fillRect(frame, size, left + 1, top + 1, Math.max(1, extremityW - 2), Math.max(1, extremityH - 2), fillColor);
-  }
-}
-
-function drawHumanoidFaceDetails(
-  frame: number[],
-  size: number,
-  recipe: SpriteRecipe,
-  cx: number,
-  headY: number,
-  headSize: number,
-  facing: FacingDirection,
-  roles: ReturnType<typeof paletteRoles>,
-  s: number,
-  detailTier: number,
-) {
-  drawEyes(frame, size, recipe, cx, headY + headSize, facing, roles.eye, s);
-
-  if (detailTier < 1) return;
-
-  const dir = facing === "left" ? -1 : 1;
-  const mouthY = headY + headSize + Math.max(1, Math.round(1.5 * s));
-  const mouthHalf = Math.max(1, Math.round(0.9 * s));
-  const noseX = cx + (detailTier >= 2 ? dir : 0);
-  const noseY = headY + headSize + Math.max(1, Math.round(0.5 * s));
-
-  fillRect(frame, size, noseX, noseY, 1, Math.max(1, Math.round(0.8 * s)), roles.shadow);
-
-  if (recipe.expression === "happy" || recipe.expression === "cute") {
-    drawLine(frame, size, cx - mouthHalf, mouthY, cx, mouthY + 1, roles.shadow, 1);
-    drawLine(frame, size, cx, mouthY + 1, cx + mouthHalf, mouthY, roles.shadow, 1);
-  } else if (recipe.expression === "angry") {
-    drawLine(frame, size, cx - mouthHalf, mouthY + 1, cx + mouthHalf, mouthY, roles.shadow, 1);
-  } else {
-    drawLine(frame, size, cx - mouthHalf, mouthY, cx + mouthHalf, mouthY, roles.shadow, 1);
-  }
-
-  if (detailTier >= 2) {
-    const browY = headY + Math.max(1, Math.round(0.8 * s));
-    const browGap = Math.max(1, Math.round(1.4 * s));
-    drawLine(frame, size, cx - browGap - 1, browY, cx - 1, browY + (recipe.expression === "angry" ? -1 : 0), roles.outline, 1);
-    drawLine(frame, size, cx + 1, browY + (recipe.expression === "angry" ? -1 : 0), cx + browGap + 1, browY, roles.outline, 1);
-    fillRect(frame, size, cx - headSize, headY + Math.round(2 * s), 1, Math.max(1, Math.round(2 * s)), roles.secondary);
-    fillRect(frame, size, cx + headSize, headY + Math.round(2 * s), 1, Math.max(1, Math.round(2 * s)), roles.secondary);
-  }
-}
-
-function drawHumanoidCostumeDetails(
-  frame: number[],
-  size: number,
-  recipe: SpriteRecipe,
-  cx: number,
-  torsoY: number,
-  torsoW: number,
-  torsoH: number,
-  ground: number,
-  roles: ReturnType<typeof paletteRoles>,
-  s: number,
-  detailTier: number,
-) {
-  if (detailTier < 1) return;
-
-  const inset = Math.max(1, Math.round(s));
-  const innerX = cx - Math.floor(torsoW / 2) + inset;
-  const innerW = Math.max(1, torsoW - inset * 2);
-  const innerTop = torsoY + inset;
-  const innerH = Math.max(1, torsoH - inset * 2);
-  const beltY = torsoY + Math.max(inset + 1, Math.round(torsoH * 0.58));
-
-  fillRect(frame, size, innerX, beltY, innerW, Math.max(1, Math.round(0.8 * s)), roles.shadow);
-  fillRect(frame, size, cx - Math.max(1, Math.round(0.8 * s)), torsoY + inset, Math.max(1, Math.round(1.6 * s)), innerH, roles.highlight);
-
-  if (recipe.outfitStyle === "armor") {
-    fillRect(frame, size, innerX + Math.max(1, Math.round(s)), torsoY + Math.max(1, Math.round(2 * s)), Math.max(1, innerW - Math.round(2 * s)), Math.max(1, Math.round(1.2 * s)), roles.highlight);
-    drawLine(frame, size, innerX + 1, torsoY + Math.round(2.5 * s), cx, torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
-    drawLine(frame, size, cx, torsoY + torsoH - Math.round(2 * s), innerX + innerW - 1, torsoY + Math.round(2.5 * s), roles.shadow, 1);
-    fillRect(frame, size, innerX - Math.max(1, Math.round(s)), torsoY + Math.round(s), Math.max(1, Math.round(1.5 * s)), Math.max(1, Math.round(2 * s)), roles.outline);
-    fillRect(frame, size, innerX + innerW, torsoY + Math.round(s), Math.max(1, Math.round(1.5 * s)), Math.max(1, Math.round(2 * s)), roles.outline);
-  } else if (recipe.outfitStyle === "robe") {
-    drawLine(frame, size, cx, torsoY + inset, cx, ground - Math.round(3 * s), roles.highlight, 1);
-    drawLine(frame, size, innerX, torsoY + inset, innerX + innerW, torsoY + inset, roles.highlight, 1);
-    drawLine(frame, size, innerX, ground - Math.round(2 * s), innerX + innerW, ground - Math.round(2 * s), roles.shadow, 1);
-  } else if (recipe.outfitStyle === "dress") {
-    drawLine(frame, size, innerX, beltY, innerX + innerW, beltY, roles.highlight, 1);
-    drawLine(frame, size, cx, beltY, cx, ground - Math.round(2 * s), roles.shadow, 1);
-    if (detailTier >= 2) {
-      drawLine(frame, size, cx - Math.round(2 * s), beltY, cx - Math.round(3 * s), ground - Math.round(2 * s), roles.shadow, 1);
-      drawLine(frame, size, cx + Math.round(2 * s), beltY, cx + Math.round(3 * s), ground - Math.round(2 * s), roles.shadow, 1);
-    }
-  } else {
-    fillRect(frame, size, innerX, torsoY + inset, innerW, Math.max(1, Math.round(s)), roles.highlight);
-    drawLine(frame, size, innerX, torsoY + Math.round(2 * s), innerX + innerW, torsoY + Math.round(2 * s), roles.shadow, 1);
-    if (detailTier >= 2) {
-      drawLine(frame, size, innerX + Math.round(2 * s), torsoY + Math.round(2 * s), innerX + Math.round(2 * s), torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
-      drawLine(frame, size, innerX + innerW - Math.round(2 * s), torsoY + Math.round(2 * s), innerX + innerW - Math.round(2 * s), torsoY + torsoH - Math.round(2 * s), roles.shadow, 1);
-    }
-  }
-}
-
-function drawHumanoid(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const detailTier = getDetailTier(size);
-  const roles = paletteRoles(recipe.palette);
-  const dir = facing === "left" ? -1 : 1;
-  const cx = Math.round(size / 2) + (facing === "left" ? -motion.torsoTilt : facing === "right" ? motion.torsoTilt : 0);
-  const ground = size - Math.round(4 * s) - motion.airborneLift;
-  const headSize = Math.round((style === "chibi" ? 4 : 3) * s);
-  const bodyWidthOffset = Math.round((recipe.bodyType === "stocky" ? 2 : recipe.bodyType === "slim" ? -1 : 0) * s);
-  const torsoW = Math.max(Math.round(4 * s), Math.round((style === "chibi" ? 6 : 5) * s) + bodyWidthOffset);
-  const torsoH = Math.round((style === "chibi" ? 6 : 7) * s);
-  const torsoY = ground - Math.round(11 * s) + motion.bob + motion.collapse;
-  const headY = torsoY - headSize - Math.round(2 * s) + motion.headOffset + motion.collapse;
-  const hipSpread = Math.round(1 * s) + Math.max(0, Math.floor(bodyWidthOffset / 2));
-  const shoulderY = torsoY + Math.round(s);
-  const leftShoulderX = cx - Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
-  const rightShoulderX = cx + Math.max(Math.round(2 * s), Math.floor(torsoW / 2));
-  const th = Math.max(1, Math.round(s));
-  const handW = detailTier >= 2 ? Math.max(2, Math.round(1.8 * s)) : 0;
-  const handH = detailTier >= 2 ? Math.max(2, Math.round(1.8 * s)) : 0;
-  const bootW = detailTier >= 1 ? Math.max(2, Math.round(2.2 * s)) : 0;
-  const bootH = detailTier >= 1 ? Math.max(2, Math.round(1.6 * s)) : 0;
-
-  if (recipe.features.includes("cape")) fillTriangle(frame, size, [cx, torsoY + Math.round(s)], [cx - Math.round(4 * s), torsoY + Math.round(8 * s)], [cx + Math.round(4 * s), torsoY + Math.round(8 * s)], roles.secondary);
-
-  if (recipe.outfitStyle === "dress") {
-    const ds = Math.max(Math.round(4 * s), Math.floor(torsoW / 2) + Math.round(s));
-    fillTriangle(frame, size, [cx, torsoY + Math.round(2 * s)], [cx - ds, ground], [cx + ds, ground], roles.outline);
-    fillTriangle(frame, size, [cx, torsoY + Math.round(3 * s)], [cx - ds + Math.round(s), ground - Math.round(s)], [cx + ds - Math.round(s), ground - Math.round(s)], roles.primary);
-  } else if (recipe.outfitStyle === "robe") {
-    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH + Math.round(s), roles.outline);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.round(s), torsoW - Math.round(2 * s), Math.max(1, torsoH - Math.round(s)), roles.primary);
-  } else {
-    fillRect(frame, size, cx - Math.floor(torsoW / 2), torsoY, torsoW, torsoH, roles.outline);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.round(s), torsoW - Math.round(2 * s), Math.max(1, torsoH - Math.round(2 * s)), roles.primary);
-    fillRect(frame, size, cx - Math.floor(torsoW / 2) + Math.round(s), torsoY + Math.max(Math.round(s), torsoH - Math.round(3 * s)), torsoW - Math.round(2 * s), Math.round(s), roles.shadow);
-  }
-
-  fillRect(frame, size, cx - headSize, headY, headSize * 2 + Math.round(s), headSize * 2 + Math.round(s), roles.outline);
-  fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), Math.max(1, headSize * 2 - Math.round(s)), Math.max(1, headSize * 2 - Math.round(s)), roles.secondary);
-
-  const hairH = Math.max(1, Math.round(2 * s));
-  if (recipe.hairStyle === "short") fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), headSize * 2 - Math.round(s), hairH, roles.accent);
-  if (recipe.hairStyle === "long") {
-    fillRect(frame, size, cx - headSize + Math.round(s), headY + Math.round(s), headSize * 2 - Math.round(s), hairH, roles.accent);
-    fillRect(frame, size, cx - headSize, headY + Math.round(3 * s), Math.round(2 * s), headSize + Math.round(s), roles.accent);
-    fillRect(frame, size, cx + headSize - Math.round(s), headY + Math.round(3 * s), Math.round(2 * s), headSize + Math.round(s), roles.accent);
-  }
-  if (recipe.hairStyle === "spiky") {
-    fillTriangle(frame, size, [cx - Math.round(2 * s), headY + Math.round(s)], [cx - Math.round(s), headY - Math.round(2 * s)], [cx, headY + Math.round(s)], roles.accent);
-    fillTriangle(frame, size, [cx, headY + Math.round(s)], [cx + Math.round(s), headY - Math.round(2 * s)], [cx + Math.round(2 * s), headY + Math.round(s)], roles.accent);
-  }
-
-  if (detailTier >= 1 && recipe.hairStyle !== "none") {
-    const hairStart = cx - headSize + Math.round(s);
-    const hairEnd = cx + headSize - Math.round(s);
-    drawLine(frame, size, hairStart, headY + hairH, hairEnd, headY + hairH, roles.outline, 1);
-    if (recipe.hairStyle === "long") {
-      drawLine(frame, size, hairStart, headY + Math.round(3 * s), hairStart - Math.round(0.5 * s), torsoY + Math.round(3 * s), roles.outline, 1);
-      drawLine(frame, size, hairEnd, headY + Math.round(3 * s), hairEnd + Math.round(0.5 * s), torsoY + Math.round(3 * s), roles.outline, 1);
-    }
-  }
-
-  if (detailTier >= 2 && recipe.hairStyle === "spiky") {
-    drawLine(frame, size, cx - Math.round(2 * s), headY + Math.round(s), cx - Math.round(s), headY - Math.round(3 * s), roles.outline, 1);
-    drawLine(frame, size, cx + Math.round(2 * s), headY + Math.round(s), cx + Math.round(s), headY - Math.round(3 * s), roles.outline, 1);
-  }
-
-  drawHumanoidFaceDetails(frame, size, recipe, cx, headY, headSize, facing, roles, s, detailTier);
-
-  if (recipe.features.includes("helmet")) fillRect(frame, size, cx - headSize, headY, headSize * 2 + Math.round(s), Math.round(2 * s), roles.accent);
-  if (recipe.features.includes("hat")) {
-    fillRect(frame, size, cx - headSize - Math.round(s), headY - Math.round(s), headSize * 2 + Math.round(3 * s), Math.round(s), roles.accent);
-    fillRect(frame, size, cx - Math.round(s), headY - Math.round(3 * s), Math.round(3 * s), Math.round(2 * s), roles.accent);
-  }
-  if (recipe.features.includes("horns")) {
-    fillTriangle(frame, size, [cx - Math.round(2 * s), headY], [cx - Math.round(3 * s), headY - Math.round(2 * s)], [cx - Math.round(s), headY], roles.accent);
-    fillTriangle(frame, size, [cx + Math.round(2 * s), headY], [cx + Math.round(3 * s), headY - Math.round(2 * s)], [cx + Math.round(s), headY], roles.accent);
-  }
-  if (recipe.features.includes("wings")) {
-    fillTriangle(frame, size, [cx - Math.round(2 * s), torsoY + Math.round(2 * s)], [cx - Math.round(6 * s) - motion.wingSwing, torsoY + Math.round(4 * s)], [cx - Math.round(3 * s), torsoY + Math.round(7 * s)], roles.secondary);
-    fillTriangle(frame, size, [cx + Math.round(2 * s), torsoY + Math.round(2 * s)], [cx + Math.round(6 * s) + motion.wingSwing, torsoY + Math.round(4 * s)], [cx + Math.round(3 * s), torsoY + Math.round(7 * s)], roles.secondary);
-  }
-
-  drawHumanoidCostumeDetails(frame, size, recipe, cx, torsoY, torsoW, torsoH, ground, roles, s, detailTier);
-
-  if (recipe.outfitStyle !== "dress") {
-    const leftHipX = cx - hipSpread;
-    const rightHipX = cx + hipSpread;
-    const hipY = torsoY + torsoH - Math.round(s);
-    const leftFootX = leftHipX + motion.legSwingA;
-    const rightFootX = rightHipX + motion.legSwingB;
-
-    if (detailTier >= 1) {
-      const kneeY = torsoY + torsoH + Math.round(2.5 * s) - Math.round(Math.abs(motion.bob) / 2);
-      const leftKneeX = leftHipX + Math.round(motion.legSwingA * 0.45) - dir;
-      const rightKneeX = rightHipX + Math.round(motion.legSwingB * 0.45) + dir;
-      drawSegmentedLimb(frame, size, leftHipX, hipY, leftKneeX, kneeY, leftFootX, ground - Math.round(s / 2), roles.outline, roles.primary, th, roles.shadow, bootW, bootH);
-      drawSegmentedLimb(frame, size, rightHipX, hipY, rightKneeX, kneeY, rightFootX, ground - Math.round(s / 2), roles.outline, roles.primary, th, roles.shadow, bootW, bootH);
-      if (detailTier >= 2) {
-        fillRect(frame, size, leftKneeX - 1, kneeY - 1, Math.max(2, Math.round(1.2 * s)), Math.max(2, Math.round(1.2 * s)), roles.highlight);
-        fillRect(frame, size, rightKneeX - 1, kneeY - 1, Math.max(2, Math.round(1.2 * s)), Math.max(2, Math.round(1.2 * s)), roles.highlight);
-      }
-    } else {
-      drawLine(frame, size, leftHipX, hipY, leftFootX, ground, roles.outline, th + 1);
-      drawLine(frame, size, rightHipX, hipY, rightFootX, ground, roles.outline, th + 1);
-      drawLine(frame, size, leftHipX, hipY, leftFootX, ground - Math.round(s), roles.primary, th);
-      drawLine(frame, size, rightHipX, hipY, rightFootX, ground - Math.round(s), roles.primary, th);
-    }
-  }
-
-  const armLen = Math.round(4 * s);
-  const leadHandX = mirrorX(rightShoulderX + motion.armSwingA, cx, facing);
-  const leadHandY = shoulderY + armLen + Math.round(Math.abs(motion.armSwingA) / 2);
-  const rearHandX = mirrorX(leftShoulderX + motion.armSwingB, cx, facing);
-  const rearHandY = shoulderY + armLen + Math.round(Math.abs(motion.armSwingB) / 2);
-
-  if (detailTier >= 1) {
-    const elbowLift = Math.max(1, Math.round(1.6 * s));
-    const leadElbowX = Math.round((rightShoulderX + leadHandX) / 2) + dir * Math.max(1, Math.round(0.8 * s));
-    const rearElbowX = Math.round((leftShoulderX + rearHandX) / 2) - dir * Math.max(1, Math.round(0.8 * s));
-    const leadElbowY = Math.round((shoulderY + leadHandY) / 2) - elbowLift;
-    const rearElbowY = Math.round((shoulderY + rearHandY) / 2) - elbowLift;
-
-    drawSegmentedLimb(frame, size, leftShoulderX, shoulderY, rearElbowX, rearElbowY, rearHandX, rearHandY, roles.outline, roles.primary, th, roles.secondary, handW, handH);
-    drawSegmentedLimb(frame, size, rightShoulderX, shoulderY, leadElbowX, leadElbowY, leadHandX, leadHandY, roles.outline, roles.primary, th, roles.secondary, handW, handH);
-
-    if (detailTier >= 2) {
-      fillEllipse(frame, size, leftShoulderX, shoulderY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.highlight);
-      fillEllipse(frame, size, rightShoulderX, shoulderY, Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.highlight);
-    }
-  } else {
-    drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.outline, th + 1);
-    drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.outline, th + 1);
-    drawLine(frame, size, leftShoulderX, shoulderY, rearHandX, rearHandY, roles.primary, th);
-    drawLine(frame, size, rightShoulderX, shoulderY, leadHandX, leadHandY, roles.primary, th);
-  }
-
-  drawAccessory(frame, size, recipe, leadHandX, leadHandY, facing, roles, s);
-}
-
-function drawCanine(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const roles = paletteRoles(recipe.palette);
-  const cx = Math.round(size / 2);
-  const ground = size - Math.round(4 * s) - motion.airborneLift;
-  const dir = facing === "left" ? -1 : 1;
-  const bodyY = ground - Math.round(7 * s) + motion.bob + motion.collapse;
-  const bodyLength = Math.round((style === "chibi" ? 9 : 11) * s);
-  const headX = cx + Math.round(dir * 5 * s);
-  const bodyX = cx - Math.floor(bodyLength / 2);
-  const th = Math.max(1, Math.round(s));
-
-  fillEllipse(frame, size, cx, bodyY, Math.floor(bodyLength / 2), Math.round(3 * s), roles.outline);
-  fillEllipse(frame, size, cx, bodyY, Math.max(Math.round(2 * s), Math.floor(bodyLength / 2) - Math.round(s)), Math.round(2 * s), roles.primary);
-  fillEllipse(frame, size, headX, bodyY - Math.round(2 * s) + motion.headOffset, Math.round(3 * s), Math.round(3 * s), roles.outline);
-  fillEllipse(frame, size, headX, bodyY - Math.round(2 * s) + motion.headOffset, Math.round(2 * s), Math.round(2 * s), roles.secondary);
-
-  if (recipe.features.includes("ears")) {
-    fillTriangle(frame, size, [headX - Math.round(dir * s), bodyY - Math.round(4 * s)], [headX - Math.round(dir * 2 * s), bodyY - Math.round(7 * s)], [headX, bodyY - Math.round(4 * s)], roles.outline);
-    fillTriangle(frame, size, [headX + Math.round(dir * s), bodyY - Math.round(4 * s)], [headX + Math.round(dir * 2 * s), bodyY - Math.round(7 * s)], [headX, bodyY - Math.round(4 * s)], roles.outline);
-  }
-  if (recipe.features.includes("tail")) drawLine(frame, size, bodyX - dir, bodyY - Math.round(s), bodyX - Math.round(dir * (3 * s + motion.tailSwing)), bodyY - Math.round(3 * s) + motion.tailSwing, roles.outline, th + 1);
-
-  const legXs = [cx - Math.round(3 * s), cx - Math.round(s), cx + Math.round(s), cx + Math.round(3 * s)];
-  const legSwings = [motion.legSwingA, motion.legSwingB, motion.legSwingB, motion.legSwingA];
-  legXs.forEach((legX, i) => {
-    drawLine(frame, size, legX, bodyY + Math.round(2 * s), legX + legSwings[i], ground, roles.outline, th + 1);
-    drawLine(frame, size, legX, bodyY + Math.round(2 * s), legX + legSwings[i], ground - Math.round(s), roles.primary, th);
-  });
-  drawEyes(frame, size, recipe, headX, bodyY - Math.round(2 * s), facing, roles.eye, s);
-}
-
-function drawSlime(frame: number[], size: number, recipe: SpriteRecipe, _facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const roles = paletteRoles(recipe.palette);
-  const cx = Math.round(size / 2);
-  const ground = size - Math.round(4 * s);
-  const rx = Math.round(5 * s) + motion.squash - motion.stretch;
-  const ry = Math.round(4 * s) - motion.squash + motion.stretch;
-  const cy = ground - Math.round(4 * s) - motion.airborneLift;
-  fillEllipse(frame, size, cx, cy, rx + Math.round(s), ry + Math.round(s), roles.outline);
-  fillEllipse(frame, size, cx, cy, rx, ry, roles.primary);
-  fillEllipse(frame, size, cx - Math.round(s), cy - Math.round(s), Math.round(s), Math.round(s), roles.highlight);
-  fillEllipse(frame, size, cx + Math.round(3 * s), cy - Math.round(2 * s), Math.round(s), Math.round(s), roles.highlight);
-  drawEyes(frame, size, recipe, cx, cy, "right", roles.eye, s);
-}
-
-function drawBird(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const roles = paletteRoles(recipe.palette);
-  const cx = Math.round(size / 2);
-  const ground = size - Math.round(4 * s) - motion.airborneLift;
-  const dir = facing === "left" ? -1 : 1;
-  const bodyY = ground - Math.round(8 * s) + motion.bob;
-  const headX = cx + Math.round(dir * 2 * s);
-  const th = Math.max(1, Math.round(s));
-  fillEllipse(frame, size, cx, bodyY, Math.round(4 * s), Math.round(5 * s), roles.outline);
-  fillEllipse(frame, size, cx, bodyY, Math.round(3 * s), Math.round(4 * s), roles.primary);
-  fillEllipse(frame, size, headX, bodyY - Math.round(5 * s), Math.round(3 * s), Math.round(3 * s), roles.outline);
-  fillEllipse(frame, size, headX, bodyY - Math.round(5 * s), Math.round(2 * s), Math.round(2 * s), roles.secondary);
-  fillTriangle(frame, size, [headX + Math.round(dir * 3 * s), bodyY - Math.round(5 * s)], [headX + Math.round(dir * 5 * s), bodyY - Math.round(4 * s)], [headX + Math.round(dir * 3 * s), bodyY - Math.round(3 * s)], roles.accent);
-  fillTriangle(frame, size, [cx, bodyY - Math.round(s)], [cx - Math.round(5 * s) - motion.wingSwing, bodyY + Math.round(s)], [cx - Math.round(s), bodyY + Math.round(4 * s)], roles.secondary);
-  fillTriangle(frame, size, [cx, bodyY - Math.round(s)], [cx + Math.round(5 * s) + motion.wingSwing, bodyY + Math.round(s)], [cx + Math.round(s), bodyY + Math.round(4 * s)], roles.secondary);
-  drawLine(frame, size, cx - Math.round(s), bodyY + Math.round(4 * s), cx - Math.round(s) + motion.legSwingA, ground, roles.outline, th);
-  drawLine(frame, size, cx + Math.round(s), bodyY + Math.round(4 * s), cx + Math.round(s) + motion.legSwingB, ground, roles.outline, th);
-  drawEyes(frame, size, recipe, headX, bodyY - Math.round(5 * s), facing, roles.eye, s);
-}
-
-function drawRobot(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const roles = paletteRoles(recipe.palette);
-  const cx = Math.round(size / 2);
-  const ground = size - Math.round(4 * s) - motion.airborneLift;
-  const bodyY = ground - Math.round(11 * s) + motion.bob + motion.collapse;
-  const headY = bodyY - Math.round(5 * s);
-  const th = Math.max(1, Math.round(s));
-  fillRect(frame, size, cx - Math.round(4 * s), bodyY, Math.round(9 * s), Math.round(7 * s), roles.outline);
-  fillRect(frame, size, cx - Math.round(3 * s), bodyY + Math.round(s), Math.round(7 * s), Math.round(5 * s), roles.primary);
-  fillRect(frame, size, cx - Math.round(3 * s), headY, Math.round(7 * s), Math.round(5 * s), roles.outline);
-  fillRect(frame, size, cx - Math.round(2 * s), headY + Math.round(s), Math.round(5 * s), Math.round(3 * s), roles.secondary);
-  fillRect(frame, size, cx - Math.round(2 * s), headY + Math.round(2 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.eye);
-  fillRect(frame, size, cx + Math.round(s), headY + Math.round(2 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.eye);
-  if (recipe.features.includes("antenna")) {
-    drawLine(frame, size, cx, headY, cx, headY - Math.round(3 * s), roles.outline, th);
-    fillRect(frame, size, cx, headY - Math.round(3 * s), Math.max(1, Math.round(s)), Math.max(1, Math.round(s)), roles.accent);
-  }
-  drawLine(frame, size, cx - Math.round(2 * s), bodyY + Math.round(s), cx - Math.round(4 * s) + motion.armSwingB, bodyY + Math.round(5 * s), roles.outline, th + 1);
-  drawLine(frame, size, cx + Math.round(2 * s), bodyY + Math.round(s), cx + Math.round(4 * s) + motion.armSwingA, bodyY + Math.round(5 * s), roles.outline, th + 1);
-  drawLine(frame, size, cx - Math.round(2 * s), bodyY + Math.round(6 * s), cx - Math.round(2 * s) + motion.legSwingA, ground, roles.outline, th + 1);
-  drawLine(frame, size, cx + Math.round(2 * s), bodyY + Math.round(6 * s), cx + Math.round(2 * s) + motion.legSwingB, ground, roles.outline, th + 1);
-  drawAccessory(frame, size, recipe, mirrorX(cx + Math.round(4 * s) + motion.armSwingA, cx, facing), bodyY + Math.round(5 * s), facing, roles, s);
-}
-
-function drawSkeleton(frame: number[], size: number, recipe: SpriteRecipe, facing: FacingDirection, _style: SpriteStyle, motion: MotionState) {
-  const s = size / 24;
-  const roles = paletteRoles(recipe.palette);
-  const cx = Math.round(size / 2);
-  const ground = size - Math.round(4 * s) - motion.airborneLift;
-  const spineY = ground - Math.round(10 * s) + motion.bob + motion.collapse;
-  const th = Math.max(1, Math.round(s));
-  fillEllipse(frame, size, cx, spineY - Math.round(4 * s), Math.round(3 * s), Math.round(3 * s), roles.outline);
-  fillEllipse(frame, size, cx, spineY - Math.round(4 * s), Math.round(2 * s), Math.round(2 * s), roles.highlight);
-  drawEyes(frame, size, recipe, cx, spineY - Math.round(4 * s), facing, roles.eye, s);
-  drawLine(frame, size, cx, spineY - Math.round(s), cx, spineY + Math.round(5 * s), roles.outline, th);
-  drawLine(frame, size, cx - Math.round(3 * s), spineY + Math.round(s), cx + Math.round(3 * s), spineY + Math.round(s), roles.outline, th);
-  drawLine(frame, size, cx - Math.round(s), spineY + Math.round(5 * s), cx - Math.round(2 * s) + motion.legSwingA, ground, roles.outline, th);
-  drawLine(frame, size, cx + Math.round(s), spineY + Math.round(5 * s), cx + Math.round(2 * s) + motion.legSwingB, ground, roles.outline, th);
-  drawLine(frame, size, cx - Math.round(3 * s), spineY + Math.round(s), cx - Math.round(4 * s) + motion.armSwingB, spineY + Math.round(5 * s), roles.outline, th);
-  drawLine(frame, size, cx + Math.round(3 * s), spineY + Math.round(s), cx + Math.round(4 * s) + motion.armSwingA, spineY + Math.round(5 * s), roles.outline, th);
-}
-
-function renderFrame(recipe: SpriteRecipe, size: number, animationType: AnimationType, frameIndex: number, frameCount: number, facing: FacingDirection, style: SpriteStyle) {
-  const frame = createFrame(size);
-  const s = size / 24;
-  const motion = getMotionState(animationType, frameIndex, frameCount, s);
-  if (recipe.archetype === "humanoid") drawHumanoid(frame, size, recipe, facing, style, motion);
-  else if (recipe.archetype === "canine") drawCanine(frame, size, recipe, facing, style, motion);
-  else if (recipe.archetype === "slime") drawSlime(frame, size, recipe, facing, style, motion);
-  else if (recipe.archetype === "bird") drawBird(frame, size, recipe, facing, style, motion);
-  else if (recipe.archetype === "robot") drawRobot(frame, size, recipe, facing, style, motion);
-  else drawSkeleton(frame, size, recipe, facing, style, motion);
-  return frame;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
   try {
-    const { prompt, animationType, style, palette, resolution, frameCount, facingDirection } = await req.json();
-    if (!prompt || !animationType || !resolution || !frameCount) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const { referenceImage, gridSize, viewingAngle, pose, frameCount } = await req.json();
+
+    if (!referenceImage) {
+      return new Response(JSON.stringify({ error: "Reference image is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-    const outputSize = parseInt(resolution);
-    const logicalSize = getLogicalSize(outputSize);
-    const totalFrames = normalizeFrameCount(Math.min(Math.max(1, Math.round(Number(frameCount) || 1)), MAX_GENERATED_FRAMES));
-    const recipe = buildRecipe(String(prompt), palette as PaletteType);
-    const frames = Array.from({ length: totalFrames }, (_, index) =>
-      renderFrame(recipe, logicalSize, animationType as AnimationType, index, totalFrames, facingDirection as FacingDirection, style as SpriteStyle)
-    );
-    console.log(`Generated ${frames.length} deterministic ${recipe.archetype} frames at ${logicalSize}px for: ${recipe.summary}`);
+
+    const size = parseInt(gridSize) || 32;
+    const frames = Math.min(Math.max(frameCount || 1, 1), 8);
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
+    }
+
+    // Build the prompt for Gemini vision
+    const systemPrompt = `You are a pixel art sprite generator. You will analyze a reference character image and produce pixel art grid data.
+
+TASK:
+1. Analyze the reference image to identify the character, their colors, and key visual features.
+2. Extract a color palette (max 16 colors including transparent as index 0).
+3. Generate ${frames} frame(s) of pixel art on a ${size}x${size} grid showing the character in the specified pose and viewing angle.
+
+OUTPUT FORMAT (strict JSON, no markdown):
+{
+  "palette": ["transparent", "#hex1", "#hex2", ...],
+  "frames": [[0,1,2,...], [0,1,2,...], ...],
+  "description": "Brief description of what was generated"
+}
+
+RULES:
+- palette[0] MUST be "transparent" (background)
+- Each frame is a flat array of ${size * size} palette indices (row by row, left to right, top to bottom)
+- The sprite should be centered in the grid with transparent padding
+- Use the colors from the reference image as closely as possible
+- For animation frames, show progressive motion (e.g., for walking: legs alternate, arms swing)
+- The character should face the specified viewing angle
+- Match the pose/action specified
+- Keep the pixel art style clean with clear outlines
+- For larger grids (128+), add more detail like shading, highlights, and anti-aliasing with palette colors
+
+VIEWING ANGLE: ${viewingAngle}
+POSE/ACTION: ${pose}
+GRID: ${size}x${size}
+FRAMES: ${frames}`;
+
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Generate a ${size}x${size} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON.`,
+              },
+              {
+                type: "image_url",
+                image_url: { url: referenceImage },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("AI gateway error:", response.status, errText);
+
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      throw new Error(`AI gateway returned ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    const content = aiResult.choices?.[0]?.message?.content || "";
+
+    // Parse JSON from the response (strip markdown fences if present)
+    let jsonStr = content;
+    const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1];
+    }
+    jsonStr = jsonStr.trim();
+
+    let parsed: { palette: string[]; frames: number[][]; description?: string };
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (e) {
+      console.error("Failed to parse AI response:", content);
+      return new Response(JSON.stringify({ error: "AI returned invalid data. Please try again." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate
+    if (!Array.isArray(parsed.palette) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {
+      return new Response(JSON.stringify({ error: "AI returned incomplete sprite data." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Ensure palette[0] is transparent
+    if (parsed.palette[0] !== "transparent") {
+      parsed.palette.unshift("transparent");
+    }
+
+    // Clamp frame data to valid palette indices
+    const maxIdx = parsed.palette.length - 1;
+    const expectedPixels = size * size;
+    parsed.frames = parsed.frames.map((frame) => {
+      const arr = Array.isArray(frame) ? frame : [];
+      const padded = new Array(expectedPixels).fill(0);
+      for (let i = 0; i < Math.min(arr.length, expectedPixels); i++) {
+        const v = typeof arr[i] === "number" ? arr[i] : 0;
+        padded[i] = Math.max(0, Math.min(v, maxIdx));
+      }
+      return padded;
+    });
+
     return new Response(
-      JSON.stringify({ type: "pixel-data", palette: recipe.palette, frames, frameCount: totalFrames, frameWidth: outputSize, frameHeight: outputSize, logicalFrameWidth: logicalSize, logicalFrameHeight: logicalSize }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({
+        type: "pixel-data",
+        palette: parsed.palette,
+        frames: parsed.frames,
+        frameCount: parsed.frames.length,
+        frameWidth: size,
+        frameHeight: size,
+        logicalFrameWidth: size,
+        logicalFrameHeight: size,
+        description: parsed.description || "",
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
-  } catch (e) {
-    console.error("generate-sprite error:", e);
-    return new Response(JSON.stringify({ error: "Sprite generation failed. Please try a different prompt." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (err) {
+    console.error("generate-sprite error:", err);
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
 });
