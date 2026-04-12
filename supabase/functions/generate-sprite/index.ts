@@ -135,11 +135,16 @@ FRAMES: ${frames}`;
 
     // Validate
     if (!Array.isArray(parsed.palette) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {
+      console.error("Incomplete data. Palette:", parsed.palette?.length, "Frames:", parsed.frames?.length);
       return new Response(JSON.stringify({ error: "AI returned incomplete sprite data." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Check if frames are mostly empty (all zeros)
+    const nonZeroCount = parsed.frames[0]?.filter((v: number) => v !== 0).length || 0;
+    console.log("Frame 0 non-zero pixels:", nonZeroCount, "/", parsed.frames[0]?.length);
 
     // Ensure palette[0] is transparent
     if (parsed.palette[0] !== "transparent") {
