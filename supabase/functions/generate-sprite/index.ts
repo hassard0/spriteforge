@@ -20,7 +20,9 @@ serve(async (req) => {
       });
     }
 
-    const size = parseInt(gridSize) || 32;
+    const displaySize = parseInt(gridSize) || 32;
+    // AI can only realistically output ~32x32 of pixel indices; upscale for display
+    const logicalSize = Math.min(displaySize, 32);
     const frames = Math.min(Math.max(frameCount || 1, 1), 8);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
