@@ -20,7 +20,9 @@ serve(async (req) => {
       });
     }
 
-    const size = parseInt(gridSize) || 32;
+    const displaySize = parseInt(gridSize) || 32;
+    // AI can only realistically output ~32x32 of pixel indices; upscale for display
+    const logicalSize = Math.min(displaySize, 32);
     const frames = Math.min(Math.max(frameCount || 1, 1), 8);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -34,7 +36,7 @@ serve(async (req) => {
 TASK:
 1. Analyze the reference image to identify the character, their colors, and key visual features.
 2. Extract a color palette (max 16 colors including transparent as index 0).
-3. Generate ${frames} frame(s) of pixel art on a ${size}x${size} grid showing the character in the specified pose and viewing angle.
+3. Generate ${frames} frame(s) of pixel art on a ${logicalSize}x${logicalSize} grid showing the character in the specified pose and viewing angle.
 
 OUTPUT FORMAT (strict JSON, no markdown):
 {
@@ -45,18 +47,18 @@ OUTPUT FORMAT (strict JSON, no markdown):
 
 RULES:
 - palette[0] MUST be "transparent" (background)
-- Each frame is a flat array of ${size * size} palette indices (row by row, left to right, top to bottom)
+- Each frame is a flat array of EXACTLY ${logicalSize * logicalSize} palette indices (row by row, left to right, top to bottom)
+- You MUST output every single pixel index. Do NOT truncate, abbreviate, or use "..." — output the full array.
 - The sprite should be centered in the grid with transparent padding
 - Use the colors from the reference image as closely as possible
 - For animation frames, show progressive motion (e.g., for walking: legs alternate, arms swing)
 - The character should face the specified viewing angle
 - Match the pose/action specified
-- Keep the pixel art style clean with clear outlines
-- For larger grids (128+), add more detail like shading, highlights, and anti-aliasing with palette colors
+- Keep the pixel art style clean with clear outlines and good use of all palette colors
 
 VIEWING ANGLE: ${viewingAngle}
 POSE/ACTION: ${pose}
-GRID: ${size}x${size}
+GRID: ${logicalSize}x${logicalSize} (${logicalSize * logicalSize} pixels per frame)
 FRAMES: ${frames}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -74,7 +76,7 @@ FRAMES: ${frames}`;
             content: [
               {
                 type: "text",
-                text: `Generate a ${size}x${size} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON.`,
+                text: `Generate a ${logicalSize}x${logicalSize} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON with the complete pixel arrays (${logicalSize * logicalSize} indices per frame).`,
               },
               {
                 type: "image_url",
@@ -143,7 +145,7 @@ FRAMES: ${frames}`;
 
     // Clamp frame data to valid palette indices
     const maxIdx = parsed.palette.length - 1;
-    const expectedPixels = size * size;
+    const expectedPixels = logicalSize * logicalSize;
     parsed.frames = parsed.frames.map((frame) => {
       const arr = Array.isArray(frame) ? frame : [];
       const padded = new Array(expectedPixels).fill(0);
@@ -160,10 +162,10 @@ FRAMES: ${frames}`;
         palette: parsed.palette,
         frames: parsed.frames,
         frameCount: parsed.frames.length,
-        frameWidth: size,
-        frameHeight: size,
-        logicalFrameWidth: size,
-        logicalFrameHeight: size,
+        frameWidth: displaySize,
+        frameHeight: displaySize,
+        logicalFrameWidth: logicalSize,
+        logicalFrameHeight: logicalSize,
         description: parsed.description || "",
       }),
       {
