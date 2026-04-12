@@ -1,25 +1,56 @@
-export type AnimationType = 'idle' | 'walk' | 'run' | 'attack' | 'jump' | 'death';
-export type SpriteStyle = 'pixel-art' | 'chibi' | 'cel-shaded';
-export type PaletteType = 'nes' | 'snes' | 'gameboy' | 'custom';
-export type Resolution = '16x16' | '32x32' | '48x48' | '64x64' | '128x128';
-export type FacingDirection = 'left' | 'right' | 'up' | 'down';
+export type GridSize = '32x32' | '64x64' | '128x128' | '256x256' | '512x512';
+
+export type ViewingAngle =
+  | 'front'
+  | 'back'
+  | 'left-side'
+  | 'right-side'
+  | 'three-quarter-front-left'
+  | 'three-quarter-front-right'
+  | 'three-quarter-back-left'
+  | 'three-quarter-back-right'
+  | 'top-down'
+  | 'isometric';
+
+export type SpritePose =
+  | 'idle'
+  | 'walking'
+  | 'running'
+  | 'jumping'
+  | 'falling'
+  | 'attacking-melee'
+  | 'attacking-ranged'
+  | 'magic-casting'
+  | 'blocking'
+  | 'crouching'
+  | 'climbing'
+  | 'swimming'
+  | 'dying'
+  | 'hurt'
+  | 'celebrating'
+  | 'sitting'
+  | 'sleeping'
+  | 'dashing'
+  | 'flying'
+  | 'charging';
 
 export interface SpriteSheet {
   id: string;
   name: string;
   prompt: string;
-  animationType: AnimationType;
-  style: SpriteStyle;
-  palette: PaletteType;
-  resolution: Resolution;
+  gridSize: GridSize;
+  viewingAngle: ViewingAngle;
+  pose: SpritePose;
   frameCount: number;
   frameWidth: number;
   frameHeight: number;
-  facingDirection: FacingDirection;
-  imageData: string; // base64 or data URL of the sprite sheet
+  imageData: string; // data URL of the sprite sheet
+  palette: string[];
+  pixelData: number[][]; // frame pixel indices
   createdAt: string;
   collectionIds: string[];
   tags: string[];
+  referenceImageUrl?: string;
 }
 
 export interface Collection {
@@ -31,16 +62,21 @@ export interface Collection {
 }
 
 export interface GenerationConfig {
-  prompt: string;
-  animationType: AnimationType;
-  style: SpriteStyle;
-  palette: PaletteType;
-  resolution: Resolution;
+  referenceImage: string; // base64 data URL
+  gridSize: GridSize;
+  viewingAngle: ViewingAngle;
+  pose: SpritePose;
   frameCount: number;
-  facingDirection: FacingDirection;
 }
 
 export interface ExportConfig {
   format: 'png' | 'json' | 'unity' | 'godot';
   includeMetadata: boolean;
 }
+
+// Legacy compat
+export type AnimationType = SpritePose;
+export type SpriteStyle = 'pixel-art';
+export type PaletteType = 'custom';
+export type Resolution = GridSize;
+export type FacingDirection = ViewingAngle;
