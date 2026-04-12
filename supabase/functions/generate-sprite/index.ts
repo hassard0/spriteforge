@@ -76,7 +76,7 @@ FRAMES: ${frames}`;
             content: [
               {
                 type: "text",
-                text: `Generate a ${size}x${size} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON.`,
+                text: `Generate a ${logicalSize}x${logicalSize} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON with the complete pixel arrays (${logicalSize * logicalSize} indices per frame).`,
               },
               {
                 type: "image_url",
