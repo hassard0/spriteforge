@@ -20,153 +20,156 @@ serve(async (req) => {
       });
     }
 
-    const displaySize = parseInt(gridSize) || 32;
-    // AI can only realistically output ~32x32 of pixel indices; upscale for display
-    const logicalSize = Math.min(displaySize, 32);
-    const frames = Math.min(Math.max(frameCount || 1, 1), 8);
+    const size = parseInt(gridSize) || 32;
+    const frames = Math.min(Math.max(frameCount || 1, 1), 4);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Build the prompt for Gemini vision
-    const systemPrompt = `You are a pixel art sprite generator. You will analyze a reference character image and produce pixel art grid data.
+    // Step 1: Use vision model to analyze the reference image and describe it
+    const analysisPrompt = `Analyze this character image. Describe in detail:
+1. The character's appearance (body shape, clothing, armor, accessories)
+2. The exact colors used (list hex codes for skin, hair, outfit, accessories)
+3. The art style
+4. Any distinctive features
 
-TASK:
-1. Analyze the reference image to identify the character, their colors, and key visual features.
-2. Extract a color palette (max 16 colors including transparent as index 0).
-3. Generate ${frames} frame(s) of pixel art on a ${logicalSize}x${logicalSize} grid showing the character in the specified pose and viewing angle.
+Be specific and concise. This description will be used to generate pixel art.`;
 
-OUTPUT FORMAT (strict JSON, no markdown):
-{
-  "palette": ["transparent", "#hex1", "#hex2", ...],
-  "frames": [[0,1,2,...], [0,1,2,...], ...],
-  "description": "Brief description of what was generated"
-}
-
-RULES:
-- palette[0] MUST be "transparent" (background)
-- Each frame is a flat array of EXACTLY ${logicalSize * logicalSize} palette indices (row by row, left to right, top to bottom)
-- You MUST output every single pixel index. Do NOT truncate, abbreviate, or use "..." — output the full array.
-- The sprite should be centered in the grid with transparent padding
-- Use the colors from the reference image as closely as possible
-- For animation frames, show progressive motion (e.g., for walking: legs alternate, arms swing)
-- The character should face the specified viewing angle
-- Match the pose/action specified
-- Keep the pixel art style clean with clear outlines and good use of all palette colors
-
-VIEWING ANGLE: ${viewingAngle}
-POSE/ACTION: ${pose}
-GRID: ${logicalSize}x${logicalSize} (${logicalSize * logicalSize} pixels per frame)
-FRAMES: ${frames}`;
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const analysisResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-flash-lite",
+        max_tokens: 1024,
         messages: [
-          { role: "system", content: systemPrompt },
           {
             role: "user",
             content: [
-              {
-                type: "text",
-                text: `Generate a ${logicalSize}x${logicalSize} pixel art sprite sheet with ${frames} frame(s). The character should be shown from a ${viewingAngle} angle in a ${pose} pose. Analyze the reference image for colors and character design. Return ONLY valid JSON with the complete pixel arrays (${logicalSize * logicalSize} indices per frame).`,
-              },
-              {
-                type: "image_url",
-                image_url: { url: referenceImage },
-              },
+              { type: "text", text: analysisPrompt },
+              { type: "image_url", image_url: { url: referenceImage } },
             ],
           },
         ],
       }),
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("AI gateway error:", response.status, errText);
+    if (!analysisResponse.ok) {
+      const errText = await analysisResponse.text();
+      console.error("Analysis error:", analysisResponse.status, errText);
+      throw new Error(`Image analysis failed (${analysisResponse.status})`);
+    }
 
-      if (response.status === 429) {
+    const analysisResult = await analysisResponse.json();
+    const characterDescription = analysisResult.choices?.[0]?.message?.content || "a game character";
+    console.log("Character analysis:", characterDescription.substring(0, 200));
+
+    // Step 2: Generate pixel art sprite image using image generation model
+    const spriteWidth = size * frames;
+    const spritePrompt = `Create a ${size}x${size} pixel art sprite sheet image.
+
+CHARACTER: ${characterDescription}
+
+REQUIREMENTS:
+- Pixel art style with clean ${size}x${size} pixel grid
+- ${frames > 1 ? `${frames} animation frames side by side horizontally (total image: ${spriteWidth}x${size} pixels)` : `Single ${size}x${size} sprite`}
+- Viewing angle: ${viewingAngle}
+- Pose/action: ${pose}
+- Transparent/solid color background (no gradients)
+- Sharp pixel edges, no anti-aliasing or blur
+- Each pixel should be clearly defined
+- The character should fill most of the ${size}x${size} grid
+${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
+- Use the exact colors described above from the reference character`;
+
+    const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-flash-image-preview",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: spritePrompt,
+          },
+        ],
+      }),
+    });
+
+    if (!imageResponse.ok) {
+      const errText = await imageResponse.text();
+      console.error("Image gen error:", imageResponse.status, errText);
+
+      if (imageResponse.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      throw new Error(`Image generation failed (${imageResponse.status})`);
+    }
+
+    const imageResult = await imageResponse.json();
+    console.log("Image gen response keys:", JSON.stringify(Object.keys(imageResult)));
+
+    // Extract the generated image from the response
+    const choice = imageResult.choices?.[0];
+    const message = choice?.message;
+
+    let imageBase64: string | null = null;
+
+    // Check for inline_data in parts (Gemini image generation format)
+    if (message?.content && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part?.type === "image_url" && part?.image_url?.url) {
+          imageBase64 = part.image_url.url;
+          break;
+        }
+        if (part?.inline_data?.data) {
+          const mime = part.inline_data.mime_type || "image/png";
+          imageBase64 = `data:${mime};base64,${part.inline_data.data}`;
+          break;
+        }
       }
-
-      throw new Error(`AI gateway returned ${response.status}`);
     }
 
-    const aiResult = await response.json();
-    const content = aiResult.choices?.[0]?.message?.content || "";
-
-    // Parse JSON from the response (strip markdown fences if present)
-    let jsonStr = content;
-    const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1];
+    // Also check if content is a string with base64 data
+    if (!imageBase64 && typeof message?.content === "string") {
+      const b64Match = message.content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/);
+      if (b64Match) {
+        imageBase64 = b64Match[0];
+      }
     }
-    jsonStr = jsonStr.trim();
 
-    let parsed: { palette: string[]; frames: number[][]; description?: string };
-    try {
-      parsed = JSON.parse(jsonStr);
-    } catch (e) {
-      console.error("Failed to parse AI response:", content);
-      return new Response(JSON.stringify({ error: "AI returned invalid data. Please try again." }), {
+    if (!imageBase64) {
+      console.error("No image in response. Message:", JSON.stringify(message).substring(0, 500));
+      return new Response(JSON.stringify({
+        error: "AI did not generate an image. Try again.",
+        debug: typeof message?.content === "string" ? message.content.substring(0, 200) : "no text content",
+      }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Validate
-    if (!Array.isArray(parsed.palette) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) {
-      return new Response(JSON.stringify({ error: "AI returned incomplete sprite data." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Ensure palette[0] is transparent
-    if (parsed.palette[0] !== "transparent") {
-      parsed.palette.unshift("transparent");
-    }
-
-    // Clamp frame data to valid palette indices
-    const maxIdx = parsed.palette.length - 1;
-    const expectedPixels = logicalSize * logicalSize;
-    parsed.frames = parsed.frames.map((frame) => {
-      const arr = Array.isArray(frame) ? frame : [];
-      const padded = new Array(expectedPixels).fill(0);
-      for (let i = 0; i < Math.min(arr.length, expectedPixels); i++) {
-        const v = typeof arr[i] === "number" ? arr[i] : 0;
-        padded[i] = Math.max(0, Math.min(v, maxIdx));
-      }
-      return padded;
-    });
+    console.log("Successfully got image, base64 length:", imageBase64.length);
 
     return new Response(
       JSON.stringify({
-        type: "pixel-data",
-        palette: parsed.palette,
-        frames: parsed.frames,
-        frameCount: parsed.frames.length,
-        frameWidth: displaySize,
-        frameHeight: displaySize,
-        logicalFrameWidth: logicalSize,
-        logicalFrameHeight: logicalSize,
-        description: parsed.description || "",
+        type: "generated-image",
+        imageData: imageBase64,
+        frameCount: frames,
+        frameWidth: size,
+        frameHeight: size,
+        description: characterDescription.substring(0, 300),
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
