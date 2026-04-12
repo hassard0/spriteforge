@@ -95,6 +95,7 @@ ${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
       body: JSON.stringify({
         model: "google/gemini-3.1-flash-image-preview",
         max_tokens: 4096,
+        modalities: ["image", "text"],
         messages: [
           {
             role: "user",
@@ -126,26 +127,23 @@ ${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
 
     let imageBase64: string | null = null;
 
-    // Check for inline_data in parts (Gemini image generation format)
-    if (message?.content && Array.isArray(message.content)) {
-      for (const part of message.content) {
-        if (part?.type === "image_url" && part?.image_url?.url) {
-          imageBase64 = part.image_url.url;
-          break;
-        }
-        if (part?.inline_data?.data) {
-          const mime = part.inline_data.mime_type || "image/png";
-          imageBase64 = `data:${mime};base64,${part.inline_data.data}`;
+    // Primary format: message.images[] array
+    if (message?.images && Array.isArray(message.images)) {
+      for (const img of message.images) {
+        if (img?.image_url?.url) {
+          imageBase64 = img.image_url.url;
           break;
         }
       }
     }
 
-    // Also check if content is a string with base64 data
-    if (!imageBase64 && typeof message?.content === "string") {
-      const b64Match = message.content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/);
-      if (b64Match) {
-        imageBase64 = b64Match[0];
+    // Fallback: check content array
+    if (!imageBase64 && message?.content && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part?.type === "image_url" && part?.image_url?.url) {
+          imageBase64 = part.image_url.url;
+          break;
+        }
       }
     }
 
