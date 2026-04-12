@@ -42,10 +42,10 @@ function SpriteCard({ sprite, selected, onToggle, onClick }: {
       <div className="p-3 space-y-1">
         <h3 className="text-sm font-bold truncate">{sprite.name}</h3>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Badge variant="secondary" className="text-[10px]">{sprite.animationType}</Badge>
-          <Badge variant="outline" className="text-[10px]">{sprite.resolution}</Badge>
+          <Badge variant="secondary" className="text-[10px]">{sprite.pose}</Badge>
+          <Badge variant="outline" className="text-[10px]">{sprite.gridSize}</Badge>
         </div>
-        <p className="text-[10px] text-muted-foreground">{sprite.frameCount} frames · {sprite.style}</p>
+        <p className="text-[10px] text-muted-foreground">{sprite.frameCount} frames · {sprite.viewingAngle}</p>
       </div>
     </div>
   );
@@ -62,8 +62,8 @@ export default function LibraryPage() {
   const filtered = useMemo(() => {
     return sprites.filter(s => {
       if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.prompt.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filterAnim !== 'all' && s.animationType !== filterAnim) return false;
-      if (filterStyle !== 'all' && s.style !== filterStyle) return false;
+      if (filterAnim !== 'all' && s.pose !== filterAnim) return false;
+      if (filterStyle !== 'all' && s.viewingAngle !== filterStyle) return false;
       return true;
     });
   }, [sprites, search, filterAnim, filterStyle]);
@@ -182,10 +182,9 @@ export default function LibraryPage() {
               />
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><span className="text-muted-foreground">Prompt:</span> {detailSprite.prompt}</div>
-                <div><span className="text-muted-foreground">Animation:</span> {detailSprite.animationType}</div>
-                <div><span className="text-muted-foreground">Style:</span> {detailSprite.style}</div>
-                <div><span className="text-muted-foreground">Palette:</span> {detailSprite.palette}</div>
-                <div><span className="text-muted-foreground">Resolution:</span> {detailSprite.resolution}</div>
+                <div><span className="text-muted-foreground">Pose:</span> {detailSprite.pose}</div>
+                <div><span className="text-muted-foreground">Angle:</span> {detailSprite.viewingAngle}</div>
+                <div><span className="text-muted-foreground">Grid:</span> {detailSprite.gridSize}</div>
                 <div><span className="text-muted-foreground">Frames:</span> {detailSprite.frameCount}</div>
               </div>
             </div>
