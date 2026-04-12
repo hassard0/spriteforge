@@ -75,14 +75,15 @@ Be specific and concise. This description will be used to generate pixel art.`;
 CHARACTER: ${characterDescription}
 
 REQUIREMENTS:
-- Pixel art style with clean ${size}x${size} pixel grid
+- Pixel art style with a clean ${size}x${size} pixel grid
 - ${frames > 1 ? `${frames} animation frames side by side horizontally (total image: ${spriteWidth}x${size} pixels)` : `Single ${size}x${size} sprite`}
 - Viewing angle: ${viewingAngle}
 - Pose/action: ${pose}
-- Transparent/solid color background (no gradients)
-- Sharp pixel edges, no anti-aliasing or blur
-- Each pixel should be clearly defined
+- CRITICAL: The background MUST be a flat, solid, uniform bright magenta color (#FF00FF) with NO variation, NO gradients, NO shadows, NO texture. Every single background pixel must be exactly #FF00FF.
+- Sharp pixel edges, no anti-aliasing, no blur, no soft edges between sprite and background
+- Each pixel should be clearly defined as a single solid color
 - The character should fill most of the ${size}x${size} grid
+- Do NOT use magenta (#FF00FF) anywhere on the character itself
 ${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
 - Use the exact colors described above from the reference character`;
 
