@@ -87,7 +87,9 @@ function extractPixelData(
             const srcY = Math.floor((y / frameHeight) * actualFrameH);
             const pixel = ctx.getImageData(srcX, srcY, 1, 1).data;
 
-            if (pixel[3] < 128) {
+            // Detect background: transparent pixels OR magenta chroma key (#FF00FF)
+            const isMagenta = pixel[0] > 220 && pixel[1] < 40 && pixel[2] > 220;
+            if (pixel[3] < 128 || isMagenta) {
               framePixels.push(0);
               continue;
             }
