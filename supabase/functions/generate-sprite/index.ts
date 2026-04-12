@@ -112,7 +112,8 @@ FRAMES: ${frames}`;
 
     const aiResult = await response.json();
     const content = aiResult.choices?.[0]?.message?.content || "";
-
+    const finishReason = aiResult.choices?.[0]?.finish_reason || "unknown";
+    console.log("AI finish_reason:", finishReason, "content length:", content.length);
     // Parse JSON from the response (strip markdown fences if present)
     let jsonStr = content;
     const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
