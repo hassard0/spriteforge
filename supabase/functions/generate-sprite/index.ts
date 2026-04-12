@@ -95,6 +95,7 @@ ${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
       body: JSON.stringify({
         model: "google/gemini-3.1-flash-image-preview",
         max_tokens: 4096,
+        modalities: ["image", "text"],
         messages: [
           {
             role: "user",
