@@ -145,7 +145,7 @@ FRAMES: ${frames}`;
 
     // Clamp frame data to valid palette indices
     const maxIdx = parsed.palette.length - 1;
-    const expectedPixels = size * size;
+    const expectedPixels = logicalSize * logicalSize;
     parsed.frames = parsed.frames.map((frame) => {
       const arr = Array.isArray(frame) ? frame : [];
       const padded = new Array(expectedPixels).fill(0);
@@ -162,10 +162,10 @@ FRAMES: ${frames}`;
         palette: parsed.palette,
         frames: parsed.frames,
         frameCount: parsed.frames.length,
-        frameWidth: size,
-        frameHeight: size,
-        logicalFrameWidth: size,
-        logicalFrameHeight: size,
+        frameWidth: displaySize,
+        frameHeight: displaySize,
+        logicalFrameWidth: logicalSize,
+        logicalFrameHeight: logicalSize,
         description: parsed.description || "",
       }),
       {
