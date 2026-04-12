@@ -408,7 +408,6 @@ export default function GeneratePage() {
               <SpritePreviewPlayer
                 imageData={result.imageData}
                 frameWidth={result.frameWidth}
-                frameWidth={result.frameWidth}
                 frameHeight={result.frameHeight}
               />
 

@@ -176,7 +176,6 @@ export default function LibraryPage() {
             <div className="space-y-4">
               <SpritePreviewPlayer
                 imageData={detailSprite.imageData}
-                frameCount={detailSprite.frameCount}
                 frameWidth={detailSprite.frameWidth}
                 frameHeight={detailSprite.frameHeight}
               />
