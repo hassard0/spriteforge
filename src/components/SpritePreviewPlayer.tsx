@@ -1,40 +1,25 @@
 import { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import {
-  Play, Pause, SkipBack, SkipForward, Repeat, ZoomIn, ZoomOut, Grid3X3,
-} from 'lucide-react';
+import { ZoomIn, ZoomOut, Grid3X3 } from 'lucide-react';
 
 interface Props {
   imageData: string;
-  frameCount: number;
   frameWidth: number;
   frameHeight: number;
   className?: string;
 }
 
 export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function SpritePreviewPlayer(
-  { imageData, frameCount, frameWidth, frameHeight, className = '' },
+  { imageData, frameWidth, frameHeight, className = '' },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const animRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(0);
-  const currentFrameRef = useRef(0);
 
-  const [currentFrame, setCurrentFrame] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  const [fps, setFps] = useState(8);
-  const [loop, setLoop] = useState(true);
-  const [zoom, setZoom] = useState(4);
+  const [zoom, setZoom] = useState(2);
   const [showGrid, setShowGrid] = useState(false);
 
-  useEffect(() => {
-    currentFrameRef.current = currentFrame;
-  }, [currentFrame]);
-
-  const drawFrame = useCallback((frame: number) => {
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img || !img.complete) return;
@@ -45,16 +30,13 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
 
     const imgW = img.naturalWidth || img.width;
     const imgH = img.naturalHeight || img.height;
-    const actualFrameW = Math.max(1, Math.round(imgW / Math.max(1, frameCount)));
-    const actualFrameH = Math.max(1, imgH);
 
-    const w = actualFrameW * zoom;
-    const h = actualFrameH * zoom;
+    const w = imgW * zoom;
+    const h = imgH * zoom;
     canvas.width = w;
     canvas.height = h;
 
-    ctx.clearRect(0, 0, w, h);
-
+    // Checkerboard background
     const checkSize = Math.max(4, zoom * 2);
     for (let y = 0; y < h; y += checkSize) {
       for (let x = 0; x < w; x += checkSize) {
@@ -64,19 +46,11 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
       }
     }
 
-    ctx.drawImage(
-      img,
-      frame * actualFrameW,
-      0,
-      actualFrameW,
-      actualFrameH,
-      0,
-      0,
-      w,
-      h,
-    );
+    // Draw the full image scaled up
+    ctx.drawImage(img, 0, 0, imgW, imgH, 0, 0, w, h);
 
-    if (showGrid) {
+    // Grid overlay
+    if (showGrid && zoom >= 2) {
       ctx.strokeStyle = 'hsla(152, 100%, 50%, 0.2)';
       ctx.lineWidth = 1;
       for (let x = 0; x <= w; x += zoom) {
@@ -92,65 +66,24 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
         ctx.stroke();
       }
     }
-  }, [frameCount, zoom, showGrid]);
+  }, [zoom, showGrid]);
 
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      currentFrameRef.current = 0;
-      setCurrentFrame(0);
-      drawFrame(0);
+      draw();
     };
     img.src = imageData;
-  }, [imageData, drawFrame]);
+  }, [imageData, draw]);
 
   useEffect(() => {
-    if (!playing) {
-      drawFrame(currentFrame);
-      return;
-    }
-
-    const interval = 1000 / fps;
-    lastTimeRef.current = 0;
-
-    const animate = (time: number) => {
-      if (!lastTimeRef.current) lastTimeRef.current = time;
-
-      if (time - lastTimeRef.current >= interval) {
-        lastTimeRef.current = time;
-        const nextFrame = (currentFrameRef.current + 1) % Math.max(1, frameCount);
-        if (nextFrame === 0 && !loop) {
-          setPlaying(false);
-          return;
-        }
-        currentFrameRef.current = nextFrame;
-        setCurrentFrame(nextFrame);
-        drawFrame(nextFrame);
-      }
-      animRef.current = requestAnimationFrame(animate);
-    };
-
-    animRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [playing, fps, frameCount, loop, drawFrame]);
-
-  useEffect(() => {
-    if (!playing) drawFrame(currentFrame);
-  }, [currentFrame, playing, drawFrame]);
-
-  const stepFrame = (dir: number) => {
-    setPlaying(false);
-    setCurrentFrame((frame) => {
-      const nextFrame = ((frame + dir) + frameCount) % frameCount;
-      currentFrameRef.current = nextFrame;
-      return nextFrame;
-    });
-  };
+    draw();
+  }, [draw]);
 
   return (
     <div ref={ref} className={`flex flex-col gap-3 ${className}`}>
-      <div className="flex items-center justify-center p-4 bg-card rounded-lg pixel-border-accent overflow-hidden">
+      <div className="flex items-center justify-center p-4 bg-card rounded-lg pixel-border-accent overflow-auto max-h-[500px]">
         <canvas
           ref={canvasRef}
           className="block"
@@ -159,36 +92,11 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Frame <span className="text-primary font-bold">{currentFrame + 1}</span> / {frameCount}</span>
-        <span>{frameWidth}×{frameHeight}px @ {fps}fps</span>
+        <span>{frameWidth}×{frameHeight}px</span>
+        <span>{zoom}× zoom</span>
       </div>
 
       <div className="flex items-center gap-1 justify-center">
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(-1)}>
-          <SkipBack className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-primary hover:text-primary"
-          onClick={() => setPlaying(!playing)}
-        >
-          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => stepFrame(1)}>
-          <SkipForward className="h-3.5 w-3.5" />
-        </Button>
-        <div className="w-px h-5 bg-border mx-1" />
-        <Button
-          type="button"
-          variant={loop ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setLoop(!loop)}
-        >
-          <Repeat className="h-3.5 w-3.5" />
-        </Button>
         <Button
           type="button"
           variant={showGrid ? 'secondary' : 'ghost'}
@@ -206,36 +114,6 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
         <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => setZoom(z => Math.min(12, z + 1))}>
           <ZoomIn className="h-3.5 w-3.5" />
         </Button>
-      </div>
-
-      <div className="flex items-center gap-3 px-2">
-        <span className="text-[10px] text-muted-foreground w-10">Speed</span>
-        <Slider
-          value={[fps]}
-          onValueChange={([v]) => setFps(v)}
-          min={1}
-          max={30}
-          step={1}
-          className="flex-1"
-        />
-        <span className="text-[10px] text-muted-foreground w-12 text-right">{fps} FPS</span>
-      </div>
-
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {Array.from({ length: frameCount }, (_, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => { setPlaying(false); currentFrameRef.current = i; setCurrentFrame(i); }}
-            className={`flex-shrink-0 w-8 h-8 rounded text-[10px] font-bold transition-colors ${
-              i === currentFrame
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-muted-foreground hover:bg-secondary/80'
-            }`}
-          >
-            {i + 1}
-          </button>
-        ))}
       </div>
     </div>
   );
