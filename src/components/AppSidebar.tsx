@@ -1,6 +1,7 @@
-import { Sparkles, Library, FolderOpen, Settings, Gamepad2 } from 'lucide-react';
+import { Sparkles, Library, FolderOpen, Settings, Gamepad2, LogOut } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Sidebar,
   SidebarContent,
@@ -11,8 +12,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarHeader,
+  SidebarFooter,
   useSidebar,
 } from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
 
 const navItems = [
   { title: 'Generate', url: '/', icon: Sparkles },
@@ -25,6 +28,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const location = useLocation();
+  const { user, signOut } = useAuth();
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border">
@@ -64,6 +68,20 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-2">
+        {!collapsed && user && (
+          <p className="text-[10px] text-muted-foreground truncate px-2 mb-1">{user.email}</p>
+        )}
+        <Button
+          variant="ghost"
+          size={collapsed ? 'icon' : 'sm'}
+          className="w-full text-muted-foreground hover:text-destructive text-xs gap-2"
+          onClick={signOut}
+        >
+          <LogOut className="h-4 w-4" />
+          {!collapsed && 'Sign out'}
+        </Button>
+      </SidebarFooter>
     </Sidebar>
   );
 }

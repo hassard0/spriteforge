@@ -14,7 +14,93 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      collections: {
+        Row: {
+          color: string
+          created_at: string
+          description: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sprites: {
+        Row: {
+          collection_ids: string[]
+          created_at: string
+          frame_count: number
+          frame_height: number
+          frame_width: number
+          grid_size: string
+          id: string
+          image_data: string
+          name: string
+          palette: string[]
+          pixel_data: Json
+          pose: string
+          prompt: string
+          reference_image_url: string | null
+          tags: string[]
+          user_id: string
+          viewing_angle: string
+        }
+        Insert: {
+          collection_ids?: string[]
+          created_at?: string
+          frame_count?: number
+          frame_height?: number
+          frame_width?: number
+          grid_size?: string
+          id?: string
+          image_data: string
+          name: string
+          palette?: string[]
+          pixel_data?: Json
+          pose?: string
+          prompt?: string
+          reference_image_url?: string | null
+          tags?: string[]
+          user_id: string
+          viewing_angle?: string
+        }
+        Update: {
+          collection_ids?: string[]
+          created_at?: string
+          frame_count?: number
+          frame_height?: number
+          frame_width?: number
+          grid_size?: string
+          id?: string
+          image_data?: string
+          name?: string
+          palette?: string[]
+          pixel_data?: Json
+          pose?: string
+          prompt?: string
+          reference_image_url?: string | null
+          tags?: string[]
+          user_id?: string
+          viewing_angle?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
