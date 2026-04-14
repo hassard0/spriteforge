@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { getStyleById, type ArtStyle } from '@/lib/art-styles';
 import { postProcessImage } from '@/lib/post-process';
-import { runObjectiveQA } from '@/lib/qa-checks';
+
 import {
   Sparkles, Loader2, Upload, Copy, Save, RotateCcw, FileJson, Image as ImageIcon,
   X as XIcon, RefreshCw,
@@ -23,7 +23,7 @@ import {
   type VisionProgress,
 } from '@/lib/local-vision';
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 1;
 const LOCAL_VISION_KEY = 'voxpi_use_local_vision';
 const RECENT_KEY = 'voxpi_recent_gens';
 const RECENT_MAX = 10;
@@ -296,33 +296,7 @@ export default function GeneratePage() {
         });
         if (controller.signal.aborted) break;
 
-        setProgress(85); setProgressMessage('Quality checking...');
-        const objResult = await runObjectiveQA(processed, selectedStyle, size, size);
-        let percResult = { passed: true, score: 7, issues: [] as string[], suggestions: [] as string[] };
-        try {
-          const { data: qd } = await supabase.functions.invoke('qa-check', {
-            body: { imageData: processed, styleId, styleName: selectedStyle.name },
-          });
-          if (qd?.error === true) {
-            toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
-          } else if (qd) {
-            percResult = { passed: qd.passed ?? true, score: qd.score ?? 7, issues: qd.issues || [], suggestions: qd.suggestions || [] };
-          }
-        } catch {
-          toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
-        }
-        if (controller.signal.aborted) break;
-
-        const allIssues = [...objResult.issues.map(i => i.message), ...percResult.issues];
-        const allSugs = [...objResult.issues.map(i => i.suggestion), ...percResult.suggestions];
-        const passed = objResult.passed && percResult.passed;
-        setQaStatus({ attempt, maxAttempts: MAX_RETRIES, objectiveScore: objResult.score, perceptualScore: percResult.score, issues: allIssues, suggestions: allSugs, passed });
-
-        if (!passed && attempt < MAX_RETRIES) {
-          setProgressMessage(`QA failed (${attempt}/${MAX_RETRIES}). Retrying...`);
-          toast({ title: `QA failed (attempt ${attempt})`, description: allIssues[0] || 'Retrying...' });
-          continue;
-        }
+        setProgress(85); setProgressMessage('Finalizing...');
 
         setPhase('Done'); setProgress(95); setProgressMessage('Extracting data...');
         const fw = Number(data.frameWidth), fh = Number(data.frameHeight), fc = Number(data.frameCount) || 1;
@@ -341,7 +315,6 @@ export default function GeneratePage() {
           palette: extracted.palette.slice(0, 64), frames: extracted.frames,
           gridSize, viewingAngle, pose, style: selectedStyle.id,
           frameWidth: fw, frameHeight: fh, description: data.description || '',
-          qa: { objectiveScore: objResult.score, perceptualScore: percResult.score, passed, issues: allIssues },
         }, null, 2);
 
         setResult(sprite);
@@ -351,7 +324,7 @@ export default function GeneratePage() {
         saveRecent(recent);
         setRecents(loadRecents());
 
-        if (!passed) toast({ title: 'Generated with warnings', description: `QA issues after ${attempt} attempts.` });
+        toast({ title: 'Sprite generated!' });
         break;
       } catch (err: any) {
         if (controller.signal.aborted) break;
