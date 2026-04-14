@@ -296,33 +296,7 @@ export default function GeneratePage() {
         });
         if (controller.signal.aborted) break;
 
-        setProgress(85); setProgressMessage('Quality checking...');
-        const objResult = await runObjectiveQA(processed, selectedStyle, size, size);
-        let percResult = { passed: true, score: 7, issues: [] as string[], suggestions: [] as string[] };
-        try {
-          const { data: qd } = await supabase.functions.invoke('qa-check', {
-            body: { imageData: processed, styleId, styleName: selectedStyle.name },
-          });
-          if (qd?.error === true) {
-            toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
-          } else if (qd) {
-            percResult = { passed: qd.passed ?? true, score: qd.score ?? 7, issues: qd.issues || [], suggestions: qd.suggestions || [] };
-          }
-        } catch {
-          toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
-        }
-        if (controller.signal.aborted) break;
-
-        const allIssues = [...objResult.issues.map(i => i.message), ...percResult.issues];
-        const allSugs = [...objResult.issues.map(i => i.suggestion), ...percResult.suggestions];
-        const passed = objResult.passed && percResult.passed;
-        setQaStatus({ attempt, maxAttempts: MAX_RETRIES, objectiveScore: objResult.score, perceptualScore: percResult.score, issues: allIssues, suggestions: allSugs, passed });
-
-        if (!passed && attempt < MAX_RETRIES) {
-          setProgressMessage(`QA failed (${attempt}/${MAX_RETRIES}). Retrying...`);
-          toast({ title: `QA failed (attempt ${attempt})`, description: allIssues[0] || 'Retrying...' });
-          continue;
-        }
+        setProgress(85); setProgressMessage('Finalizing...');
 
         setPhase('Done'); setProgress(95); setProgressMessage('Extracting data...');
         const fw = Number(data.frameWidth), fh = Number(data.frameHeight), fc = Number(data.frameCount) || 1;
