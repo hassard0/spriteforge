@@ -1,5 +1,5 @@
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import type { GridSize, ViewingAngle, SpritePose } from '@/types/sprite';
 
 const GRID_SIZES: { value: GridSize; label: string }[] = [
@@ -62,67 +62,82 @@ export function GenerationConfig({
   onGridSizeChange, onViewingAngleChange, onPoseChange, onFrameCountChange,
 }: Props) {
   return (
-    <div className="space-y-3">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1">
-        Config
-      </span>
+    <div className="space-y-4">
+      <ConfigField label="Canvas size" description="This sets the dimensions for each frame.">
+        <Select value={gridSize} onValueChange={v => onGridSizeChange(v as GridSize)}>
+          <SelectTrigger className="h-10 border-border bg-background/60 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {GRID_SIZES.map(option => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ConfigField>
 
-      <div className="space-y-2.5">
-        <CompactSelect
-          label="Size"
-          value={gridSize}
-          onChange={v => onGridSizeChange(v as GridSize)}
-          options={GRID_SIZES}
-        />
-        <CompactSelect
-          label="Angle"
-          value={viewingAngle}
-          onChange={v => onViewingAngleChange(v as ViewingAngle)}
-          options={VIEWING_ANGLES}
-        />
-        <CompactSelect
-          label="Pose"
-          value={pose}
-          onChange={v => onPoseChange(v as SpritePose)}
-          options={POSES}
-        />
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-[10px] text-muted-foreground">Frames</label>
-            <span className="text-[10px] text-primary font-bold">{frameCount}</span>
-          </div>
-          <Slider
-            value={[frameCount]}
-            onValueChange={([v]) => onFrameCountChange(v)}
-            min={1}
-            max={4}
-            step={1}
-          />
+      <ConfigField label="Viewing angle" description="Choose the character's camera orientation.">
+        <Select value={viewingAngle} onValueChange={v => onViewingAngleChange(v as ViewingAngle)}>
+          <SelectTrigger className="h-10 border-border bg-background/60 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {VIEWING_ANGLES.map(option => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ConfigField>
+
+      <ConfigField label="Animation pose" description="Pick the move you want the generator to focus on.">
+        <Select value={pose} onValueChange={v => onPoseChange(v as SpritePose)}>
+          <SelectTrigger className="h-10 border-border bg-background/60 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {POSES.map(option => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ConfigField>
+
+      <ConfigField label="Frame count" description="Short loops are faster to iterate and easier to judge.">
+        <div className="grid grid-cols-4 gap-2">
+          {[1, 2, 3, 4].map((value) => (
+            <Button
+              key={value}
+              type="button"
+              variant={frameCount === value ? 'default' : 'outline'}
+              className="h-11 flex-col gap-0 rounded-xl px-0"
+              onClick={() => onFrameCountChange(value)}
+            >
+              <span className="text-sm font-semibold">{value}</span>
+              <span className="text-[10px] uppercase tracking-wide opacity-80">frame{value !== 1 ? 's' : ''}</span>
+            </Button>
+          ))}
         </div>
-      </div>
+      </ConfigField>
     </div>
   );
 }
 
-function CompactSelect({ label, value, onChange, options }: {
+function ConfigField({
+  label,
+  description,
+  children,
+}: {
   label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  description: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <label className="text-[10px] text-muted-foreground w-10 flex-shrink-0">{label}</label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-7 bg-secondary/40 text-[10px] flex-1 border-border">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map(o => (
-            <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="space-y-2">
+      <div>
+        <label className="text-sm font-medium text-foreground">{label}</label>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      {children}
     </div>
   );
 }

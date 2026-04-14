@@ -69,6 +69,10 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
 
     const scaledW = Math.max(1, Math.round(imgW * z));
     const scaledH = Math.max(1, Math.round(imgH * z));
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    const checkerLight = `hsl(${rootStyles.getPropertyValue('--secondary').trim()} / 0.9)`;
+    const checkerDark = `hsl(${rootStyles.getPropertyValue('--muted').trim()} / 0.7)`;
+    const gridColor = `hsl(${rootStyles.getPropertyValue('--border').trim()} / 0.9)`;
 
     canvas.width = scaledW;
     canvas.height = scaledH;
@@ -80,7 +84,7 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
     for (let y = 0; y < scaledH; y += checkSize) {
       for (let x = 0; x < scaledW; x += checkSize) {
         const isLight = ((x / checkSize) + (y / checkSize)) % 2 === 0;
-        ctx.fillStyle = isLight ? 'hsl(220 15% 14%)' : 'hsl(220 15% 11%)';
+        ctx.fillStyle = isLight ? checkerLight : checkerDark;
         ctx.fillRect(x, y, checkSize, checkSize);
       }
     }
@@ -88,7 +92,7 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
     ctx.drawImage(img, 0, 0, imgW, imgH, 0, 0, scaledW, scaledH);
 
     if (showGrid && z >= 2) {
-      ctx.strokeStyle = 'hsla(152, 100%, 50%, 0.2)';
+      ctx.strokeStyle = gridColor;
       ctx.lineWidth = 1;
       for (let x = 0; x <= scaledW; x += z) {
         ctx.beginPath();
@@ -135,49 +139,52 @@ export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function Sp
   const handleZoomIn = () => setManualZoom(stepZoom(displayZoom, 1));
 
   return (
-    <div ref={ref} className={`flex flex-col gap-3 ${className}`}>
+    <div ref={ref} className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/40 ${className}`}>
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/40 px-3 py-2"
+      >
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Preview</p>
+          <p className="mt-1 text-xs text-foreground">{frameWidth}×{frameHeight}px sprite sheet</p>
+        </div>
+
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-card/70 p-1">
+          <Button
+            type="button"
+            variant={showGrid ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setShowGrid(!showGrid)}
+          >
+            <Grid3X3 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant={manualZoom === null ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setManualZoom(null)}
+            title="Fit to size"
+          >
+            <Maximize className="h-3.5 w-3.5" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomOut}>
+            <ZoomOut className="h-3.5 w-3.5" />
+          </Button>
+          <span className="w-16 text-center text-[11px] text-muted-foreground">
+            {displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}×
+          </span>
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomIn}>
+            <ZoomIn className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
       <div
         ref={containerRef}
-        className="flex h-[500px] items-center justify-center overflow-auto rounded-lg bg-card p-4 pixel-border-accent"
+        className="flex flex-1 min-h-[20rem] items-center justify-center overflow-auto bg-background/30 p-4"
       >
         <canvas ref={canvasRef} className="block max-w-none shrink-0" style={{ imageRendering: 'pixelated' }} />
-      </div>
-
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{frameWidth}×{frameHeight}px</span>
-        <span>{manualZoom === null ? `fit (${displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}×)` : `${displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}× zoom`}</span>
-      </div>
-
-      <div className="flex items-center justify-center gap-1">
-        <Button
-          type="button"
-          variant={showGrid ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setShowGrid(!showGrid)}
-        >
-          <Grid3X3 className="h-3.5 w-3.5" />
-        </Button>
-        <div className="mx-1 h-5 w-px bg-border" />
-        <Button
-          type="button"
-          variant={manualZoom === null ? 'secondary' : 'ghost'}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setManualZoom(null)}
-          title="Fit to size"
-        >
-          <Maximize className="h-3.5 w-3.5" />
-        </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomOut}>
-          <ZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <span className="w-14 text-center text-xs text-muted-foreground">
-          {displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}×
-        </span>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomIn}>
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
       </div>
     </div>
   );
