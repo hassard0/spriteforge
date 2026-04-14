@@ -23,7 +23,7 @@ import {
   type VisionProgress,
 } from '@/lib/local-vision';
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 1;
 const LOCAL_VISION_KEY = 'voxpi_use_local_vision';
 const RECENT_KEY = 'voxpi_recent_gens';
 const RECENT_MAX = 10;
