@@ -13,37 +13,37 @@ const GRID_SIZES: { value: GridSize; label: string }[] = [
 const VIEWING_ANGLES: { value: ViewingAngle; label: string }[] = [
   { value: 'front', label: 'Front' },
   { value: 'back', label: 'Back' },
-  { value: 'left-side', label: 'Left Side' },
-  { value: 'right-side', label: 'Right Side' },
-  { value: 'three-quarter-front-left', label: '¾ Front Left' },
-  { value: 'three-quarter-front-right', label: '¾ Front Right' },
-  { value: 'three-quarter-back-left', label: '¾ Back Left' },
-  { value: 'three-quarter-back-right', label: '¾ Back Right' },
+  { value: 'left-side', label: 'Left' },
+  { value: 'right-side', label: 'Right' },
+  { value: 'three-quarter-front-left', label: '¾ Front L' },
+  { value: 'three-quarter-front-right', label: '¾ Front R' },
+  { value: 'three-quarter-back-left', label: '¾ Back L' },
+  { value: 'three-quarter-back-right', label: '¾ Back R' },
   { value: 'top-down', label: 'Top Down' },
   { value: 'isometric', label: 'Isometric' },
 ];
 
 const POSES: { value: SpritePose; label: string }[] = [
   { value: 'idle', label: 'Idle' },
-  { value: 'walking', label: 'Walking' },
-  { value: 'running', label: 'Running' },
-  { value: 'jumping', label: 'Jumping' },
-  { value: 'falling', label: 'Falling' },
-  { value: 'attacking-melee', label: 'Melee Attack' },
-  { value: 'attacking-ranged', label: 'Ranged Attack' },
-  { value: 'magic-casting', label: 'Magic Casting' },
-  { value: 'blocking', label: 'Blocking' },
-  { value: 'crouching', label: 'Crouching' },
-  { value: 'climbing', label: 'Climbing' },
-  { value: 'swimming', label: 'Swimming' },
-  { value: 'dying', label: 'Dying' },
+  { value: 'walking', label: 'Walk' },
+  { value: 'running', label: 'Run' },
+  { value: 'jumping', label: 'Jump' },
+  { value: 'falling', label: 'Fall' },
+  { value: 'attacking-melee', label: 'Melee' },
+  { value: 'attacking-ranged', label: 'Ranged' },
+  { value: 'magic-casting', label: 'Magic' },
+  { value: 'blocking', label: 'Block' },
+  { value: 'crouching', label: 'Crouch' },
+  { value: 'climbing', label: 'Climb' },
+  { value: 'swimming', label: 'Swim' },
+  { value: 'dying', label: 'Die' },
   { value: 'hurt', label: 'Hurt' },
-  { value: 'celebrating', label: 'Celebrating' },
-  { value: 'sitting', label: 'Sitting' },
-  { value: 'sleeping', label: 'Sleeping' },
-  { value: 'dashing', label: 'Dashing' },
-  { value: 'flying', label: 'Flying' },
-  { value: 'charging', label: 'Charging' },
+  { value: 'celebrating', label: 'Celebrate' },
+  { value: 'sitting', label: 'Sit' },
+  { value: 'sleeping', label: 'Sleep' },
+  { value: 'dashing', label: 'Dash' },
+  { value: 'flying', label: 'Fly' },
+  { value: 'charging', label: 'Charge' },
 ];
 
 interface Props {
@@ -63,64 +63,63 @@ export function GenerationConfig({
 }: Props) {
   return (
     <div className="space-y-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Configuration
-      </h2>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1">
+        Config
+      </span>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <ConfigSelect
-          label="Grid Size"
+      <div className="space-y-2.5">
+        <CompactSelect
+          label="Size"
           value={gridSize}
           onChange={v => onGridSizeChange(v as GridSize)}
           options={GRID_SIZES}
         />
-        <ConfigSelect
-          label="Viewing Angle"
+        <CompactSelect
+          label="Angle"
           value={viewingAngle}
           onChange={v => onViewingAngleChange(v as ViewingAngle)}
           options={VIEWING_ANGLES}
         />
-        <ConfigSelect
-          label="Pose / Action"
+        <CompactSelect
+          label="Pose"
           value={pose}
           onChange={v => onPoseChange(v as SpritePose)}
           options={POSES}
         />
-        <div>
-          <label className="text-[10px] text-muted-foreground uppercase mb-1.5 block">
-            Frames: <span className="text-primary font-bold">{frameCount}</span>
-          </label>
-          <div className="pt-2.5 px-1">
-            <Slider
-              value={[frameCount]}
-              onValueChange={([v]) => onFrameCountChange(v)}
-              min={1}
-              max={4}
-              step={1}
-            />
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] text-muted-foreground">Frames</label>
+            <span className="text-[10px] text-primary font-bold">{frameCount}</span>
           </div>
+          <Slider
+            value={[frameCount]}
+            onValueChange={([v]) => onFrameCountChange(v)}
+            min={1}
+            max={4}
+            step={1}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function ConfigSelect({ label, value, onChange, options }: {
+function CompactSelect({ label, value, onChange, options }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
 }) {
   return (
-    <div>
-      <label className="text-[10px] text-muted-foreground uppercase mb-1.5 block">{label}</label>
+    <div className="flex items-center gap-2">
+      <label className="text-[10px] text-muted-foreground w-10 flex-shrink-0">{label}</label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="bg-secondary/50 h-9 text-xs">
+        <SelectTrigger className="h-7 bg-secondary/40 text-[10px] flex-1 border-border">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {options.map(o => (
-            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
           ))}
         </SelectContent>
       </Select>

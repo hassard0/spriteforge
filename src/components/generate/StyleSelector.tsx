@@ -1,6 +1,7 @@
 import { ART_STYLES, type ArtStyle } from '@/lib/art-styles';
 import { cn } from '@/lib/utils';
 import { Check } from 'lucide-react';
+import { useRef, useEffect } from 'react';
 
 // Style preview thumbnails
 import pixel8bit from '@/assets/styles/pixel-8bit.jpg';
@@ -33,20 +34,28 @@ interface Props {
 }
 
 export function StyleSelector({ selectedId, onSelect }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll selected into view on mount
+  useEffect(() => {
+    const el = scrollRef.current?.querySelector('[data-selected="true"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, []);
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Art Style
-        </h2>
-        <span className="text-[10px] text-muted-foreground">
-          {ART_STYLES.length} styles
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Style
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+      <div
+        ref={scrollRef}
+        className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin"
+      >
         {ART_STYLES.map(style => (
-          <StyleCard
+          <StyleChip
             key={style.id}
             style={style}
             thumbnail={STYLE_THUMBNAILS[style.id]}
@@ -59,7 +68,7 @@ export function StyleSelector({ selectedId, onSelect }: Props) {
   );
 }
 
-function StyleCard({ style, thumbnail, selected, onClick }: {
+function StyleChip({ style, thumbnail, selected, onClick }: {
   style: ArtStyle;
   thumbnail?: string;
   selected: boolean;
@@ -69,44 +78,36 @@ function StyleCard({ style, thumbnail, selected, onClick }: {
     <button
       type="button"
       onClick={onClick}
+      data-selected={selected}
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-lg border transition-all duration-200',
+        'group relative flex-shrink-0 flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-all duration-150',
         selected
-          ? 'border-primary ring-1 ring-primary shadow-[0_0_12px_hsl(var(--primary)/0.15)]'
-          : 'border-border bg-card hover:border-primary/40'
+          ? 'border-primary bg-primary/10 ring-1 ring-primary'
+          : 'border-border bg-card hover:border-primary/40 hover:bg-secondary/60'
       )}
     >
-      {/* Selected indicator */}
-      {selected && (
-        <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-primary p-0.5">
-          <Check className="h-2.5 w-2.5 text-primary-foreground" />
-        </div>
-      )}
-
       {/* Thumbnail */}
-      <div className="relative aspect-square bg-secondary/30 overflow-hidden">
+      <div className="h-8 w-8 rounded overflow-hidden flex-shrink-0 bg-secondary/30">
         {thumbnail ? (
           <img
             src={thumbnail}
             alt={style.name}
-            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+            className="h-full w-full object-cover"
             loading="lazy"
-            width={512}
-            height={512}
+            width={32}
+            height={32}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-2xl">
-            {style.icon}
-          </div>
+          <span className="flex h-full w-full items-center justify-center text-sm">{style.icon}</span>
         )}
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
 
       {/* Label */}
-      <div className="p-2 text-center bg-card">
-        <span className="text-[10px] font-semibold leading-tight">{style.shortName}</span>
-      </div>
+      <span className="text-[10px] font-semibold whitespace-nowrap pr-1">{style.shortName}</span>
+
+      {selected && (
+        <Check className="h-3 w-3 text-primary flex-shrink-0" />
+      )}
     </button>
   );
 }

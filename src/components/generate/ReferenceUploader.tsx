@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { Upload, X, ImageIcon } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
@@ -38,14 +38,14 @@ export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
   }, [handleFile]);
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Reference Character
-        </label>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Reference
+        </span>
         {preview && (
-          <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground gap-1" onClick={onClear}>
-            <X className="h-3 w-3" /> Clear
+          <Button variant="ghost" size="sm" className="h-5 text-[9px] text-muted-foreground px-1.5 gap-0.5" onClick={onClear}>
+            <X className="h-2.5 w-2.5" /> Clear
           </Button>
         )}
       </div>
@@ -63,37 +63,24 @@ export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
         className={`
-          relative flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed transition-all
+          flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed transition-all
           ${preview
-            ? 'border-primary/30 bg-card p-3 hover:border-primary/50'
-            : 'border-border bg-secondary/20 p-8 hover:border-primary/40 hover:bg-secondary/30'
+            ? 'border-primary/30 bg-card p-2 hover:border-primary/50'
+            : 'border-border bg-secondary/10 p-4 hover:border-primary/40 hover:bg-secondary/20'
           }
         `}
       >
         {preview ? (
-          <div className="flex items-center gap-4 w-full">
-            <div className="flex-shrink-0 h-20 w-20 rounded-lg bg-secondary/50 flex items-center justify-center overflow-hidden">
-              <img
-                src={preview}
-                alt="Reference"
-                className="max-h-full max-w-full object-contain"
-                style={{ imageRendering: 'pixelated' }}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground">Reference uploaded</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Click to replace or drag a new image</p>
-            </div>
-          </div>
+          <img
+            src={preview}
+            alt="Reference"
+            className="max-h-[100px] max-w-full object-contain rounded"
+            style={{ imageRendering: 'pixelated' }}
+          />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-center">
-            <div className="rounded-xl bg-secondary/50 p-3">
-              <Upload className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Drop your character image here</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-0.5">PNG, JPG, WEBP up to 10MB</p>
-            </div>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <Upload className="h-5 w-5 text-muted-foreground" />
+            <p className="text-[10px] text-muted-foreground">Drop image here</p>
           </div>
         )}
       </div>
