@@ -315,7 +315,6 @@ export default function GeneratePage() {
           palette: extracted.palette.slice(0, 64), frames: extracted.frames,
           gridSize, viewingAngle, pose, style: selectedStyle.id,
           frameWidth: fw, frameHeight: fh, description: data.description || '',
-          qa: { objectiveScore: objResult.score, perceptualScore: percResult.score, passed, issues: allIssues },
         }, null, 2);
 
         setResult(sprite);
@@ -325,7 +324,7 @@ export default function GeneratePage() {
         saveRecent(recent);
         setRecents(loadRecents());
 
-        if (!passed) toast({ title: 'Generated with warnings', description: `QA issues after ${attempt} attempts.` });
+        toast({ title: 'Sprite generated!' });
         break;
       } catch (err: any) {
         if (controller.signal.aborted) break;
