@@ -1,53 +1,120 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Style prompt templates — keyed by style ID
-const STYLE_PROMPTS: Record<string, { keywords: string; negative: string }> = {
-  'pixel-8bit': {
-    keywords: 'pixel art, NES 8-bit style, very limited color palette of at most 8 colors, blocky pixels, retro game sprite, no anti-aliasing, no gradients, sharp pixel edges',
-    negative: 'Do NOT use smooth gradients, anti-aliasing, or photo-realistic rendering.',
-  },
-  'pixel-16bit': {
-    keywords: 'pixel art, 16-bit SNES style, rich color palette up to 32 colors, detailed pixel sprite, retro RPG style, clean pixel edges',
-    negative: 'Do NOT use photo-realistic rendering or blurry anti-aliased edges.',
-  },
-  'hand-drawn-dark': {
-    keywords: 'hand-drawn gothic art style, dark moody sketch, ink illustration, bold dark outlines, atmospheric, muted dark color palette',
-    negative: 'Do NOT use bright cheerful colors, pixel art, or 3D rendering.',
-  },
-  'hand-drawn-bright': {
-    keywords: 'hand-drawn cartoon, bright vibrant colors, thick black outlines, flat colors, whimsical playful style, cel-shaded cartoon',
-    negative: 'Do NOT use dark moody tones, pixel art, or 3D rendering.',
-  },
-  'anime-cel': {
-    keywords: 'anime style character, cel-shaded, vivid vibrant colors, large expressive eyes, smooth shading with hard shadow edges, Japanese animation style',
-    negative: 'Do NOT use pixel art, western cartoon style, or photo-realistic rendering.',
-  },
-  'monochrome-silhouette': {
-    keywords: 'monochrome silhouette, black and white only, dark shadow figure, minimalistic, dramatic backlight, absolutely no color',
-    negative: 'Do NOT use any color. Only pure black and pure white.',
-  },
-  'vector-flat': {
-    keywords: 'vector art style, simple geometric shapes, flat solid colors, no shading, clean crisp edges, modern minimalist illustration',
-    negative: 'Do NOT use pixel art, gradients, realistic textures, or sketchy lines.',
-  },
-  'chibi-manga': {
-    keywords: 'chibi manga style, cute exaggerated proportions, very large head, big round eyes, small body, kawaii, pastel colors',
-    negative: 'Do NOT use realistic proportions, dark horror themes, or pixel art.',
-  },
-  'sketch-ink': {
-    keywords: 'pen and ink sketch, loose hand-drawn lines, crosshatching, visible brush strokes, raw expressive illustration, black ink on white',
-    negative: 'Do NOT use clean digital art, pixel art, or smooth gradients.',
-  },
-  'realistic-stylized': {
-    keywords: 'stylized 3D character, smooth soft lighting, vibrant colors, exaggerated cartoon proportions, rounded shapes, Pixar-like quality',
-    negative: 'Do NOT use pixel art, flat colors, sketch style, or photographic realism.',
-  },
-};
+const BATCH_SIZE = 8;
+
+interface SpriteRequest {
+  referenceImage: string;
+  gridSize: string;
+  viewingAngle: string;
+  pose: string;
+  frameCount: number;
+  styleId?: string;
+  styleKeywords?: string;
+  styleNegative?: string;
+  palette?: { id?: string; colors?: string[] };
+}
+
+async function callImageModel(
+  apiKey: string,
+  prompt: string,
+): Promise<string | null> {
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3.1-flash-image-preview",
+      max_tokens: 4096,
+      modalities: ["image", "text"],
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error("Image gen error:", resp.status, errText);
+    const err: any = new Error(`Image generation failed (${resp.status})`);
+    err.status = resp.status;
+    throw err;
+  }
+
+  const result = await resp.json();
+  const message = result.choices?.[0]?.message;
+  let imageBase64: string | null = null;
+
+  if (message?.images && Array.isArray(message.images)) {
+    for (const img of message.images) {
+      if (img?.image_url?.url) {
+        imageBase64 = img.image_url.url;
+        break;
+      }
+    }
+  }
+  if (!imageBase64 && message?.content && Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part?.type === "image_url" && part?.image_url?.url) {
+        imageBase64 = part.image_url.url;
+        break;
+      }
+    }
+  }
+  return imageBase64;
+}
+
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(",");
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function stitchBatches(
+  batchDataUrls: string[],
+  frameSize: number,
+  framesPerBatch: number[],
+  totalFrames: number,
+): Promise<string> {
+  const totalWidth = frameSize * totalFrames;
+  const stitched = new Image(totalWidth, frameSize);
+
+  let xOffset = 0;
+  for (let b = 0; b < batchDataUrls.length; b++) {
+    const bytes = dataUrlToBytes(batchDataUrls[b]);
+    const img = await Image.decode(bytes);
+
+    const batchCount = framesPerBatch[b];
+    const expectedW = frameSize * batchCount;
+
+    // Resize batch image to the expected width/height if model returned a different size.
+    let batchImg = img;
+    if (img.width !== expectedW || img.height !== frameSize) {
+      console.log(
+        `Batch ${b} size mismatch: got ${img.width}x${img.height}, resizing to ${expectedW}x${frameSize}`,
+      );
+      batchImg = img.resize(expectedW, frameSize);
+    }
+
+    stitched.composite(batchImg, xOffset, 0);
+    xOffset += expectedW;
+  }
+
+  const encoded = await stitched.encode();
+  let binStr = "";
+  for (let i = 0; i < encoded.length; i++) binStr += String.fromCharCode(encoded[i]);
+  const b64 = btoa(binStr);
+  return `data:image/png;base64,${b64}`;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -55,7 +122,18 @@ serve(async (req) => {
   }
 
   try {
-    const { referenceImage, gridSize, viewingAngle, pose, frameCount, styleId } = await req.json();
+    const body: SpriteRequest = await req.json();
+    const {
+      referenceImage,
+      gridSize,
+      viewingAngle,
+      pose,
+      frameCount,
+      styleId,
+      styleKeywords,
+      styleNegative,
+      palette,
+    } = body;
 
     if (!referenceImage) {
       return new Response(JSON.stringify({ error: "Reference image is required" }), {
@@ -65,8 +143,7 @@ serve(async (req) => {
     }
 
     const size = parseInt(gridSize) || 32;
-    const frames = Math.min(Math.max(frameCount || 1, 1), 4);
-    const style = STYLE_PROMPTS[styleId || 'pixel-16bit'] || STYLE_PROMPTS['pixel-16bit'];
+    const frames = Math.min(Math.max(Number(frameCount) || 1, 1), 24);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -110,126 +187,129 @@ Be specific and concise. This description will be used to generate sprite art in
     }
 
     const analysisResult = await analysisResponse.json();
-    const characterDescription = analysisResult.choices?.[0]?.message?.content || "a game character";
+    const characterDescription =
+      analysisResult.choices?.[0]?.message?.content || "a game character";
     console.log("Character analysis:", characterDescription.substring(0, 200));
 
-    // Step 2: Generate sprite with style-specific prompt
-    const spriteWidth = size * frames;
-    const spritePrompt = `Create a ${size}x${size} sprite image in the following art style.
+    const styleLine =
+      styleKeywords && styleKeywords.length > 0
+        ? styleKeywords
+        : `${styleId || "pixel-16bit"} art style`;
+    const negativeLine = styleNegative || "";
 
-ART STYLE: ${style.keywords}
+    const paletteLine =
+      palette && Array.isArray(palette.colors) && palette.colors.length > 0
+        ? `- Use ONLY these colours (snap every pixel to one of them): ${palette.colors
+            .slice(0, 32)
+            .join(", ")}`
+        : "";
+
+    // Split into batches of up to BATCH_SIZE frames
+    const numBatches = Math.ceil(frames / BATCH_SIZE);
+    const framesPerBatch: number[] = [];
+    for (let b = 0; b < numBatches; b++) {
+      const count = Math.min(BATCH_SIZE, frames - b * BATCH_SIZE);
+      framesPerBatch.push(count);
+    }
+
+    const batchPrompts = framesPerBatch.map((count, b) => {
+      const startFrame = b * BATCH_SIZE + 1;
+      const endFrame = startFrame + count - 1;
+      const frameRangeHint =
+        frames > 1
+          ? `This is frames ${startFrame}-${endFrame} of ${frames} total, continuing the ${pose} animation in smooth sequence.`
+          : "";
+
+      return `Create a ${size * count}x${size} sprite strip image.
+
+ART STYLE: ${styleLine}
 
 CHARACTER: ${characterDescription}
 
 REQUIREMENTS:
-- ${frames > 1 ? `${frames} frames side by side horizontally (total image: ${spriteWidth}x${size} pixels)` : `Single ${size}x${size} sprite`}
+- ${count > 1
+          ? `${count} frames side by side horizontally (total image: ${size * count}x${size} pixels, each frame exactly ${size}x${size})`
+          : `Single ${size}x${size} sprite`}
 - Viewing angle: ${viewingAngle}
 - Pose/action: ${pose}
-- CRITICAL: The background MUST be a flat, solid, uniform bright magenta color (#FF00FF) with NO variation, NO gradients, NO shadows, NO texture. Every single background pixel must be exactly #FF00FF.
-- The character should fill most of the ${size}x${size} grid
-- Do NOT use magenta (#FF00FF) anywhere on the character itself
-${frames > 1 ? `- Each frame should show progressive ${pose} animation` : ''}
+- ${frameRangeHint}
+- The background MUST be a clean solid white (#FFFFFF). The character should be fully opaque and clearly separable from the white background.
+- The character should fill most of each ${size}x${size} frame
 - Use the exact colors described above from the reference character
-- ${style.negative}`;
-
-    const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3.1-flash-image-preview",
-        max_tokens: 4096,
-        modalities: ["image", "text"],
-        messages: [
-          {
-            role: "user",
-            content: spritePrompt,
-          },
-        ],
-      }),
+${paletteLine ? paletteLine + "\n" : ""}${negativeLine ? `- ${negativeLine}` : ""}`;
     });
 
-    if (!imageResponse.ok) {
-      const errText = await imageResponse.text();
-      console.error("Image gen error:", imageResponse.status, errText);
-
-      if (imageResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (imageResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "Credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`Image generation failed (${imageResponse.status})`);
-    }
-
-    const imageResult = await imageResponse.json();
-
-    // Extract generated image
-    const choice = imageResult.choices?.[0];
-    const message = choice?.message;
-    let imageBase64: string | null = null;
-
-    if (message?.images && Array.isArray(message.images)) {
-      for (const img of message.images) {
-        if (img?.image_url?.url) {
-          imageBase64 = img.image_url.url;
-          break;
+    const batchImages: string[] = [];
+    for (let b = 0; b < batchPrompts.length; b++) {
+      try {
+        const img = await callImageModel(LOVABLE_API_KEY, batchPrompts[b]);
+        if (!img) throw new Error(`Batch ${b + 1} returned no image`);
+        batchImages.push(img);
+      } catch (err: any) {
+        if (err?.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limited. Please try again in a moment." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         }
-      }
-    }
-
-    if (!imageBase64 && message?.content && Array.isArray(message.content)) {
-      for (const part of message.content) {
-        if (part?.type === "image_url" && part?.image_url?.url) {
-          imageBase64 = part.image_url.url;
-          break;
+        if (err?.status === 402) {
+          return new Response(
+            JSON.stringify({
+              error: "Credits exhausted. Please add funds in Settings > Workspace > Usage.",
+            }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         }
+        throw err;
       }
     }
 
-    if (!imageBase64) {
-      console.error("No image in response. Message:", JSON.stringify(message).substring(0, 500));
-      return new Response(JSON.stringify({
-        error: "AI did not generate an image. Try again.",
-        debug: typeof message?.content === "string" ? message.content.substring(0, 200) : "no text content",
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let finalImage: string;
+    if (batchImages.length === 1) {
+      // Single batch — still normalise via imagescript so that the caller gets a
+      // canonically-sized strip (some models return slightly mis-sized output).
+      const bytes = dataUrlToBytes(batchImages[0]);
+      const img = await Image.decode(bytes);
+      const expectedW = size * frames;
+      if (img.width !== expectedW || img.height !== size) {
+        console.log(
+          `Single batch size mismatch: got ${img.width}x${img.height}, resizing to ${expectedW}x${size}`,
+        );
+        const resized = img.resize(expectedW, size);
+        const encoded = await resized.encode();
+        let binStr = "";
+        for (let i = 0; i < encoded.length; i++) binStr += String.fromCharCode(encoded[i]);
+        finalImage = `data:image/png;base64,${btoa(binStr)}`;
+      } else {
+        finalImage = batchImages[0];
+      }
+    } else {
+      finalImage = await stitchBatches(batchImages, size, framesPerBatch, frames);
     }
 
-    console.log("Successfully generated image, base64 length:", imageBase64.length);
+    console.log(
+      `Successfully generated ${frames} frames across ${batchImages.length} batch(es)`,
+    );
 
     return new Response(
       JSON.stringify({
         type: "generated-image",
-        imageData: imageBase64,
+        imageData: finalImage,
         frameCount: frames,
         frameWidth: size,
         frameHeight: size,
+        frameSize: size,
+        batches: batchImages.length,
         description: characterDescription.substring(0, 300),
-        styleId: styleId || 'pixel-16bit',
+        styleId: styleId || "pixel-16bit",
       }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("generate-sprite error:", err);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

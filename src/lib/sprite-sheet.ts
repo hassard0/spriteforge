@@ -120,7 +120,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: number): Promise<string> {
+export async function stitchFrames(
+  frameSrcs: string[],
+  frameW: number,
+  frameH: number,
+): Promise<{ canvas: HTMLCanvasElement; failed: number[] }> {
   const images = await Promise.all(
     frameSrcs.map(async (src) => {
       try {
@@ -139,16 +143,17 @@ export async function stitchFrames(frameSrcs: string[], frameW: number, frameH: 
   if (!ctx) throw new Error('Could not create sprite sheet canvas');
   ctx.imageSmoothingEnabled = false;
 
+  const failed: number[] = [];
   images.forEach((img, index) => {
     const frameX = index * frameW;
     if (!img) {
+      failed.push(index);
       ctx.fillStyle = 'hsl(220 15% 14%)';
       ctx.fillRect(frameX, 0, frameW, frameH);
       return;
     }
-
     ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, frameX, 0, frameW, frameH);
   });
 
-  return canvas.toDataURL('image/png');
+  return { canvas, failed };
 }

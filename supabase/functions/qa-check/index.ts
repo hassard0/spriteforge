@@ -80,10 +80,16 @@ Respond in this exact JSON format:
         });
       }
       // On error, pass by default to not block the user
-      return new Response(JSON.stringify({ passed: true, score: 7, issues: [], suggestions: [] }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: true,
+          passed: false,
+          score: 0,
+          issues: ["QA service error"],
+          suggestions: [],
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const result = await response.json();

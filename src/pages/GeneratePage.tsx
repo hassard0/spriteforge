@@ -15,13 +15,21 @@ import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
 
 const MAX_RETRIES = 3;
+let hasShownBgModelToast = false;
 
 function extractPixelData(
   imageData: string, frameCount: number, frameWidth: number, frameHeight: number,
 ): Promise<{ palette: string[]; frames: number[][] }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
+      const expectedW = frameWidth * frameCount;
+      if (img.naturalWidth !== expectedW) {
+        console.warn(
+          `extractPixelData: image width ${img.naturalWidth} != expected ${expectedW} (frameWidth ${frameWidth} * frameCount ${frameCount}) — continuing with rescaled sampling`,
+        );
+        // Not a hard error since stitching upstream should already match; we log and keep going.
+      }
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
@@ -35,13 +43,15 @@ function extractPixelData(
       const frames: number[][] = [];
       for (let f = 0; f < frameCount; f++) {
         const fp: number[] = [];
+        const fullFrame = ctx.getImageData(f * actualFrameW, 0, actualFrameW, actualFrameH).data;
         for (let y = 0; y < frameHeight; y++) {
           for (let x = 0; x < frameWidth; x++) {
-            const srcX = Math.floor((x / frameWidth) * actualFrameW) + f * actualFrameW;
+            const srcX = Math.floor((x / frameWidth) * actualFrameW);
             const srcY = Math.floor((y / frameHeight) * actualFrameH);
-            const pixel = ctx.getImageData(srcX, srcY, 1, 1).data;
-            if (pixel[3] < 128 || (pixel[0] > 220 && pixel[1] < 40 && pixel[2] > 220)) { fp.push(0); continue; }
-            const hex = `#${pixel[0].toString(16).padStart(2, '0')}${pixel[1].toString(16).padStart(2, '0')}${pixel[2].toString(16).padStart(2, '0')}`;
+            const i = (srcY * actualFrameW + srcX) * 4;
+            const r = fullFrame[i], g = fullFrame[i + 1], b = fullFrame[i + 2], a = fullFrame[i + 3];
+            if (a < 128) { fp.push(0); continue; }
+            const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
             let idx = colorMap.get(hex);
             if (idx === undefined) { idx = palette.length; palette.push(hex); colorMap.set(hex, idx); }
             fp.push(idx);
@@ -51,7 +61,7 @@ function extractPixelData(
       }
       resolve({ palette, frames });
     };
-    img.onerror = () => resolve({ palette: ['transparent'], frames: [] });
+    img.onerror = () => reject(new Error('Failed to load generated image for pixel extraction'));
     img.src = imageData;
   });
 }
@@ -110,9 +120,11 @@ export default function GeneratePage() {
 
         setProgress(65); setProgressMessage('Post-processing...');
         let processed = data.imageData;
-        if (selectedStyle.pixelate || selectedStyle.clampPalette || selectedStyle.monoThreshold || selectedStyle.posterize) {
-          processed = await postProcessImage(processed, selectedStyle, size, size);
+        if (!hasShownBgModelToast) {
+          hasShownBgModelToast = true;
+          toast({ title: 'Loading background-removal model', description: 'First-run ~4 MB download, then cached.' });
         }
+        processed = await postProcessImage(processed, selectedStyle, size, size);
 
         setProgress(75); setProgressMessage('Quality checking...');
         const objResult = await runObjectiveQA(processed, selectedStyle, size, size);
@@ -121,8 +133,14 @@ export default function GeneratePage() {
           const { data: qd } = await supabase.functions.invoke('qa-check', {
             body: { imageData: processed, styleId, styleName: selectedStyle.name },
           });
-          if (qd) percResult = { passed: qd.passed ?? true, score: qd.score ?? 7, issues: qd.issues || [], suggestions: qd.suggestions || [] };
-        } catch { /* skip */ }
+          if (qd?.error === true) {
+            toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
+          } else if (qd) {
+            percResult = { passed: qd.passed ?? true, score: qd.score ?? 7, issues: qd.issues || [], suggestions: qd.suggestions || [] };
+          }
+        } catch {
+          toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
+        }
 
         const allIssues = [...objResult.issues.map(i => i.message), ...percResult.issues];
         const allSugs = [...objResult.issues.map(i => i.suggestion), ...percResult.suggestions];

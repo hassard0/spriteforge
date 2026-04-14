@@ -61,6 +61,10 @@ export function GenerationConfig({
   gridSize, viewingAngle, pose, frameCount,
   onGridSizeChange, onViewingAngleChange, onPoseChange, onFrameCountChange,
 }: Props) {
+  // Hard-cap frames to 8 when target resolution is >= 256 to avoid absurd strip widths
+  const resPx = parseInt(gridSize) || 32;
+  const maxFrames = resPx >= 256 ? 8 : 24;
+  const clampedFrameCount = Math.min(frameCount, maxFrames);
   return (
     <div className="space-y-2.5">
       <CompactSelect label="Size" value={gridSize} onChange={v => onGridSizeChange(v as GridSize)} options={GRID_SIZES} />
@@ -69,9 +73,16 @@ export function GenerationConfig({
       <div className="space-y-1">
         <div className="flex items-center justify-between">
           <label className="text-[10px] text-muted-foreground">Frames</label>
-          <span className="text-[10px] text-primary font-bold">{frameCount}</span>
+          <span className="text-[10px] text-primary font-bold">{clampedFrameCount} / {maxFrames}</span>
         </div>
-        <Slider value={[frameCount]} onValueChange={([v]) => onFrameCountChange(v)} min={1} max={4} step={1} />
+        <Slider
+          value={[clampedFrameCount]}
+          onValueChange={([v]) => onFrameCountChange(v)}
+          min={1}
+          max={maxFrames}
+          step={1}
+          aria-label="Frame count"
+        />
       </div>
     </div>
   );

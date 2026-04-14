@@ -114,17 +114,14 @@ export function runObjectiveQA(
   });
 }
 
-/** Fraction of non-transparent, non-magenta pixels */
+/** Fraction of non-transparent pixels (background has already been removed) */
 function computeCoverage(imageData: ImageData): number {
   const d = imageData.data;
   let total = 0;
   let filled = 0;
   for (let i = 0; i < d.length; i += 4) {
     total++;
-    const isMagenta = d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200;
-    if (d[i + 3] >= 128 && !isMagenta) {
-      filled++;
-    }
+    if (d[i + 3] >= 128) filled++;
   }
   return total > 0 ? filled / total : 0;
 }
@@ -134,10 +131,7 @@ function countUniqueColors(imageData: ImageData): number {
   const d = imageData.data;
   const colors = new Set<string>();
   for (let i = 0; i < d.length; i += 4) {
-    const isMagenta = d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200;
-    if (d[i + 3] >= 128 && !isMagenta) {
-      colors.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
-    }
+    if (d[i + 3] >= 128) colors.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
   }
   return colors.size;
 }
@@ -149,8 +143,6 @@ function computeColorfulness(imageData: ImageData): number {
   let count = 0;
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] < 128) continue;
-    const isMagenta = d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200;
-    if (isMagenta) continue;
     const rg = Math.abs(d[i] - d[i + 1]);
     const rb = Math.abs(d[i] - d[i + 2]);
     const gb = Math.abs(d[i + 1] - d[i + 2]);
