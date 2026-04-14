@@ -76,6 +76,7 @@ export function SpriteResultPanel({ result, jsonOutput, onSave, onRetry, generat
         imageData={result.imageData}
         frameWidth={result.frameWidth}
         frameHeight={result.frameHeight}
+        frameCount={result.frameCount}
       />
 
       {/* Palette */}

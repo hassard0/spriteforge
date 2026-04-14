@@ -254,7 +254,7 @@ export default function GeneratePage() {
 
                 {/* Preview */}
                 <div className="flex-1 min-h-0">
-                  <SpritePreviewPlayer imageData={result.imageData} frameWidth={result.frameWidth} frameHeight={result.frameHeight} className="h-full" />
+                  <SpritePreviewPlayer imageData={result.imageData} frameWidth={result.frameWidth} frameHeight={result.frameHeight} frameCount={result.frameCount} className="h-full" />
                 </div>
 
                 {/* Bottom bar: QA + Palette */}

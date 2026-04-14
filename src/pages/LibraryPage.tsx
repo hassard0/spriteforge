@@ -216,6 +216,7 @@ export default function LibraryPage() {
                 imageData={detailSprite.imageData}
                 frameWidth={detailSprite.frameWidth}
                 frameHeight={detailSprite.frameHeight}
+                frameCount={detailSprite.frameCount}
               />
               <div className="grid grid-cols-3 gap-3 text-[10px] rounded-lg border border-border p-3">
                 <div>

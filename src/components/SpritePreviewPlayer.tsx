@@ -1,175 +1,356 @@
 import { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { ZoomIn, ZoomOut, Grid3X3, Maximize } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { Play, Pause, SkipBack, SkipForward, Grid3X3, Repeat, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Props {
   imageData: string;
   frameWidth: number;
   frameHeight: number;
+  frameCount: number;
   className?: string;
+  initialFps?: number;
 }
 
-const MIN_ZOOM = 0.125;
-const MAX_ZOOM = 12;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 16;
+const MIN_FPS = 1;
+const MAX_FPS = 30;
 
 export const SpritePreviewPlayer = forwardRef<HTMLDivElement, Props>(function SpritePreviewPlayer(
-  { imageData, frameWidth, frameHeight, className = '' },
+  { imageData, frameWidth, frameHeight, frameCount, className = '', initialFps = 8 },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
+  const accumRef = useRef<number>(0);
+  const playingRef = useRef<boolean>(true);
+  const fpsRef = useRef<number>(initialFps);
+  const loopRef = useRef<boolean>(true);
+  const frameRef = useRef<number>(0);
 
-  const [manualZoom, setManualZoom] = useState<number | null>(null);
-  const [displayZoom, setDisplayZoom] = useState(1);
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [fps, setFps] = useState(initialFps);
+  const [loop, setLoop] = useState(true);
+  const [zoom, setZoom] = useState(4);
   const [showGrid, setShowGrid] = useState(false);
+  const [imgReady, setImgReady] = useState(false);
 
-  const getFitZoom = useCallback(() => {
-    const img = imgRef.current;
-    const container = containerRef.current;
-    if (!img || !container) return 1;
+  // Sync refs with state (so the rAF loop sees latest values without restart)
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { fpsRef.current = fps; }, [fps]);
+  useEffect(() => { loopRef.current = loop; }, [loop]);
+  useEffect(() => { frameRef.current = currentFrame; }, [currentFrame]);
 
-    const imgW = img.naturalWidth || img.width;
-    const imgH = img.naturalHeight || img.height;
-    if (!imgW || !imgH) return 1;
-
-    const styles = window.getComputedStyle(container);
-    const padX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
-    const padY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
-    const availableW = Math.max(container.clientWidth - padX, 1);
-    const availableH = Math.max(container.clientHeight - padY, 1);
-
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(availableW / imgW, availableH / imgH)));
-  }, []);
-
-  const stepZoom = useCallback((current: number, direction: 1 | -1) => {
-    if (current < 1) {
-      const next = direction === 1 ? current * 2 : current / 2;
-      return Math.max(MIN_ZOOM, Math.min(1, next));
-    }
-
-    const next = direction === 1 ? current + 1 : current - 1;
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
-  }, []);
-
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img || !img.complete) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const imgW = img.naturalWidth || img.width;
-    const imgH = img.naturalHeight || img.height;
-    if (!imgW || !imgH) return;
-
-    const z = manualZoom ?? getFitZoom();
-    setDisplayZoom(z);
-
-    const scaledW = Math.max(1, Math.round(imgW * z));
-    const scaledH = Math.max(1, Math.round(imgH * z));
-    const rootStyles = window.getComputedStyle(document.documentElement);
-    const checkerLight = `hsl(${rootStyles.getPropertyValue('--secondary').trim()} / 0.9)`;
-    const checkerDark = `hsl(${rootStyles.getPropertyValue('--muted').trim()} / 0.7)`;
-    const gridColor = `hsl(${rootStyles.getPropertyValue('--border').trim()} / 0.9)`;
-
-    canvas.width = scaledW;
-    canvas.height = scaledH;
-
-    ctx.clearRect(0, 0, scaledW, scaledH);
-    ctx.imageSmoothingEnabled = false;
-
-    const checkSize = Math.max(4, Math.round(Math.max(z, 1) * 2));
-    for (let y = 0; y < scaledH; y += checkSize) {
-      for (let x = 0; x < scaledW; x += checkSize) {
-        const isLight = ((x / checkSize) + (y / checkSize)) % 2 === 0;
-        ctx.fillStyle = isLight ? checkerLight : checkerDark;
-        ctx.fillRect(x, y, checkSize, checkSize);
-      }
-    }
-
-    ctx.drawImage(img, 0, 0, imgW, imgH, 0, 0, scaledW, scaledH);
-
-    if (showGrid && z >= 2) {
-      ctx.strokeStyle = gridColor;
-      ctx.lineWidth = 1;
-      for (let x = 0; x <= scaledW; x += z) {
-        ctx.beginPath();
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, scaledH);
-        ctx.stroke();
-      }
-      for (let y = 0; y <= scaledH; y += z) {
-        ctx.beginPath();
-        ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(scaledW, y + 0.5);
-        ctx.stroke();
-      }
-    }
-  }, [getFitZoom, manualZoom, showGrid]);
-
+  // Load image once
   useEffect(() => {
-    setManualZoom(null);
+    setImgReady(false);
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      draw();
+      setImgReady(true);
     };
     img.src = imageData;
-  }, [imageData, draw]);
+  }, [imageData]);
 
+  // Reset frame when frameCount changes
   useEffect(() => {
-    draw();
-  }, [draw]);
+    setCurrentFrame((f) => Math.min(f, Math.max(0, frameCount - 1)));
+  }, [frameCount]);
 
+  const drawFrame = useCallback(
+    (frameIdx: number) => {
+      const canvas = canvasRef.current;
+      const img = imgRef.current;
+      if (!canvas || !img || !img.complete) return;
+
+      const displayW = frameWidth * zoom;
+      const displayH = frameHeight * zoom;
+      canvas.width = displayW;
+      canvas.height = displayH;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, displayW, displayH);
+
+      // Checker background
+      const check = Math.max(4, zoom * 2);
+      const rootStyles = window.getComputedStyle(document.documentElement);
+      const light = `hsl(${rootStyles.getPropertyValue('--secondary').trim()} / 0.9)`;
+      const dark = `hsl(${rootStyles.getPropertyValue('--muted').trim()} / 0.7)`;
+      for (let y = 0; y < displayH; y += check) {
+        for (let x = 0; x < displayW; x += check) {
+          const isLight = ((x / check) + (y / check)) % 2 === 0;
+          ctx.fillStyle = isLight ? light : dark;
+          ctx.fillRect(x, y, check, check);
+        }
+      }
+
+      ctx.drawImage(
+        img,
+        frameIdx * frameWidth,
+        0,
+        frameWidth,
+        frameHeight,
+        0,
+        0,
+        displayW,
+        displayH,
+      );
+
+      if (showGrid && zoom >= 2) {
+        ctx.strokeStyle = `hsl(${rootStyles.getPropertyValue('--border').trim()} / 0.9)`;
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= displayW; x += zoom) {
+          ctx.beginPath();
+          ctx.moveTo(x + 0.5, 0);
+          ctx.lineTo(x + 0.5, displayH);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= displayH; y += zoom) {
+          ctx.beginPath();
+          ctx.moveTo(0, y + 0.5);
+          ctx.lineTo(displayW, y + 0.5);
+          ctx.stroke();
+        }
+      }
+    },
+    [frameWidth, frameHeight, zoom, showGrid],
+  );
+
+  // Redraw when any visual parameter changes
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (imgReady) drawFrame(currentFrame);
+  }, [imgReady, currentFrame, drawFrame]);
 
-    const ro = new ResizeObserver(() => {
-      if (manualZoom === null) draw();
+  // rAF loop (single instance, never restarted on state changes)
+  useEffect(() => {
+    if (!imgReady) return;
+    const tick = (now: number) => {
+      if (lastTimeRef.current === 0) lastTimeRef.current = now;
+      const dt = now - lastTimeRef.current;
+      lastTimeRef.current = now;
+
+      if (playingRef.current && frameCount > 1) {
+        accumRef.current += dt;
+        const msPerFrame = 1000 / fpsRef.current;
+        while (accumRef.current >= msPerFrame) {
+          accumRef.current -= msPerFrame;
+          let next = frameRef.current + 1;
+          if (next >= frameCount) {
+            if (loopRef.current) {
+              next = 0;
+            } else {
+              next = frameCount - 1;
+              playingRef.current = false;
+              setPlaying(false);
+            }
+          }
+          frameRef.current = next;
+          setCurrentFrame(next);
+        }
+      } else {
+        accumRef.current = 0;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      lastTimeRef.current = 0;
+      accumRef.current = 0;
+    };
+  }, [imgReady, frameCount]);
+
+  const togglePlay = useCallback(() => setPlaying((p) => !p), []);
+  const stepPrev = useCallback(() => {
+    setPlaying(false);
+    setCurrentFrame((f) => {
+      if (f <= 0) return loopRef.current ? frameCount - 1 : 0;
+      return f - 1;
     });
+  }, [frameCount]);
+  const stepNext = useCallback(() => {
+    setPlaying(false);
+    setCurrentFrame((f) => {
+      if (f >= frameCount - 1) return loopRef.current ? 0 : frameCount - 1;
+      return f + 1;
+    });
+  }, [frameCount]);
 
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [manualZoom, draw]);
+  const onCanvasKey = useCallback(
+    (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+      if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); stepPrev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stepNext(); }
+      else if (e.key === 'l' || e.key === 'L') { setLoop((l) => !l); }
+    },
+    [togglePlay, stepPrev, stepNext],
+  );
 
-  const handleZoomOut = () => setManualZoom(stepZoom(displayZoom, -1));
-  const handleZoomIn = () => setManualZoom(stepZoom(displayZoom, 1));
+  // Thumbnail strip refs
+  const thumbCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  useEffect(() => {
+    if (!imgReady) return;
+    const img = imgRef.current;
+    if (!img) return;
+    const THUMB_H = 48;
+    const scale = THUMB_H / frameHeight;
+    const thumbW = Math.round(frameWidth * scale);
+    for (let i = 0; i < frameCount; i++) {
+      const c = thumbCanvasRefs.current[i];
+      if (!c) continue;
+      c.width = thumbW;
+      c.height = THUMB_H;
+      const tctx = c.getContext('2d');
+      if (!tctx) continue;
+      tctx.imageSmoothingEnabled = false;
+      tctx.clearRect(0, 0, thumbW, THUMB_H);
+      tctx.drawImage(img, i * frameWidth, 0, frameWidth, frameHeight, 0, 0, thumbW, THUMB_H);
+    }
+  }, [imgReady, frameCount, frameWidth, frameHeight]);
+
+  const selectFrame = (idx: number) => {
+    setPlaying(false);
+    setCurrentFrame(idx);
+  };
 
   return (
     <div ref={ref} className={`flex flex-col gap-2 ${className}`}>
-      <div
-        ref={containerRef}
-        className="flex flex-1 items-center justify-center overflow-auto rounded-lg bg-card p-4 pixel-border-accent"
-      >
-        <canvas ref={canvasRef} className="block max-w-none shrink-0" style={{ imageRendering: 'pixelated' }} />
+      <div className="flex flex-1 items-center justify-center overflow-auto rounded-lg bg-card p-4 pixel-border-accent">
+        <canvas
+          ref={canvasRef}
+          tabIndex={0}
+          onKeyDown={onCanvasKey}
+          aria-label={`Sprite preview, frame ${currentFrame + 1} of ${frameCount}`}
+          className="block max-w-none shrink-0 outline-none focus:ring-2 focus:ring-primary/50 rounded"
+          style={{ imageRendering: 'pixelated' }}
+        />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{frameWidth}×{frameHeight}px</span>
-        <span>{manualZoom === null ? `fit (${displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}×)` : `${displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}× zoom`}</span>
-      </div>
-
-      <div className="flex items-center justify-center gap-1">
-        <Button type="button" variant={showGrid ? 'secondary' : 'ghost'} size="icon" className="h-8 w-8" onClick={() => setShowGrid(!showGrid)}>
+      {/* Controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8"
+          onClick={stepPrev}
+          aria-label="Previous frame"
+          disabled={frameCount <= 1}
+        >
+          <SkipBack className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8"
+          onClick={togglePlay}
+          aria-label={playing ? 'Pause' : 'Play'}
+          disabled={frameCount <= 1}
+        >
+          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8"
+          onClick={stepNext}
+          aria-label="Next frame"
+          disabled={frameCount <= 1}
+        >
+          <SkipForward className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant={loop ? 'secondary' : 'ghost'}
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setLoop((l) => !l)}
+          aria-label="Toggle loop"
+          title="Toggle loop (L)"
+        >
+          <Repeat className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant={showGrid ? 'secondary' : 'ghost'}
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setShowGrid((g) => !g)}
+          aria-label="Toggle pixel grid"
+        >
           <Grid3X3 className="h-3.5 w-3.5" />
         </Button>
-        <div className="mx-1 h-5 w-px bg-border" />
-        <Button type="button" variant={manualZoom === null ? 'secondary' : 'ghost'} size="icon" className="h-8 w-8" onClick={() => setManualZoom(null)} title="Fit to size">
-          <Maximize className="h-3.5 w-3.5" />
-        </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomOut}>
-          <ZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <span className="w-14 text-center text-xs text-muted-foreground">
-          {displayZoom.toFixed(displayZoom < 1 ? 3 : 1).replace(/\.0$/, '')}×
-        </span>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomIn}>
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
+
+        <div className="flex items-center gap-1.5 flex-1 min-w-[100px]">
+          <span className="text-[9px] text-muted-foreground w-6">FPS</span>
+          <Slider
+            value={[fps]}
+            onValueChange={([v]) => setFps(v)}
+            min={MIN_FPS}
+            max={MAX_FPS}
+            step={1}
+            aria-label="Frames per second"
+          />
+          <span className="text-[10px] tabular-nums w-6 text-right">{fps}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 1))}
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </Button>
+          <span className="text-[10px] tabular-nums w-6 text-center">{zoom}x</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 1))}
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
+
+      <div className="text-[10px] text-muted-foreground text-center" aria-live="polite">
+        Frame {currentFrame + 1} / {frameCount}
+      </div>
+
+      {/* Thumbnail strip */}
+      {frameCount > 1 && (
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {Array.from({ length: frameCount }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => selectFrame(i)}
+              aria-label={`Jump to frame ${i + 1}`}
+              className={`flex-shrink-0 rounded border-2 p-0.5 transition-all ${
+                i === currentFrame ? 'border-primary' : 'border-border hover:border-primary/50'
+              }`}
+            >
+              <canvas
+                ref={(el) => { thumbCanvasRefs.current[i] = el; }}
+                style={{ imageRendering: 'pixelated', display: 'block' }}
+              />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
