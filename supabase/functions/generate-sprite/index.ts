@@ -19,6 +19,13 @@ interface SpriteRequest {
   styleKeywords?: string;
   styleNegative?: string;
   palette?: { id?: string; colors?: string[] };
+  /**
+   * Optional: pre-computed character description from a client-side vision
+   * model (e.g. SmolVLM running on WebGPU). When present and non-trivial,
+   * the server skips its own Gemini vision call and uses this text directly
+   * as the character description for the image-gen prompt.
+   */
+  precomputedDescription?: string;
 }
 
 async function callImageModel(
@@ -133,6 +140,7 @@ serve(async (req) => {
       styleKeywords,
       styleNegative,
       palette,
+      precomputedDescription,
     } = body;
 
     if (!referenceImage) {
@@ -150,8 +158,26 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Step 1: Analyze reference image
-    const analysisPrompt = `Analyze this character image. Describe in detail:
+    // Step 1: Analyze reference image.
+    // If the client provided a precomputed description (e.g. from a browser-local
+    // SmolVLM run), trust it and skip the Gemini vision call entirely. Otherwise
+    // fall back to the server-side Gemini analysis.
+    let characterDescription: string;
+    const hasPrecomputed =
+      typeof precomputedDescription === "string" &&
+      precomputedDescription.trim().length > 20;
+
+    if (hasPrecomputed) {
+      characterDescription = precomputedDescription!.trim();
+      console.log(
+        "[vision] using precomputed client-side description (",
+        characterDescription.length,
+        "chars):",
+        characterDescription.substring(0, 200),
+      );
+    } else {
+      console.log("[vision] running server-side Gemini vision analysis");
+      const analysisPrompt = `Analyze this character image. Describe in detail:
 1. The character's appearance (body shape, clothing, armor, accessories)
 2. The exact colors used (list hex codes for skin, hair, outfit, accessories)
 3. The art style
@@ -159,37 +185,41 @@ serve(async (req) => {
 
 Be specific and concise. This description will be used to generate sprite art in a specific style.`;
 
-    const analysisResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        max_tokens: 1024,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: analysisPrompt },
-              { type: "image_url", image_url: { url: referenceImage } },
-            ],
+      const analysisResponse = await fetch(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
           },
-        ],
-      }),
-    });
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            max_tokens: 1024,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: analysisPrompt },
+                  { type: "image_url", image_url: { url: referenceImage } },
+                ],
+              },
+            ],
+          }),
+        },
+      );
 
-    if (!analysisResponse.ok) {
-      const errText = await analysisResponse.text();
-      console.error("Analysis error:", analysisResponse.status, errText);
-      throw new Error(`Image analysis failed (${analysisResponse.status})`);
+      if (!analysisResponse.ok) {
+        const errText = await analysisResponse.text();
+        console.error("Analysis error:", analysisResponse.status, errText);
+        throw new Error(`Image analysis failed (${analysisResponse.status})`);
+      }
+
+      const analysisResult = await analysisResponse.json();
+      characterDescription =
+        analysisResult.choices?.[0]?.message?.content || "a game character";
+      console.log("Character analysis:", characterDescription.substring(0, 200));
     }
-
-    const analysisResult = await analysisResponse.json();
-    const characterDescription =
-      analysisResult.choices?.[0]?.message?.content || "a game character";
-    console.log("Character analysis:", characterDescription.substring(0, 200));
 
     const styleLine =
       styleKeywords && styleKeywords.length > 0

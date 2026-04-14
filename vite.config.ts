@@ -19,4 +19,12 @@ export default defineConfig(({ mode }) => ({
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
+  // transformers.js ships ONNX WASM workers and large binary model files; excluding
+  // it from dep pre-bundling avoids Vite trying to bundle the workers.
+  optimizeDeps: {
+    exclude: ["@huggingface/transformers"],
+  },
+  worker: {
+    format: "es",
+  },
 }));
