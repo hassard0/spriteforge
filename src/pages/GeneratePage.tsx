@@ -526,12 +526,12 @@ export default function GeneratePage() {
 
               {/* QA Results */}
               {qaStatus && (
-                <div className={`p-3 rounded-lg border text-xs ${qaStatus.passed ? 'border-green-500/30 bg-green-500/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                <div className={`p-3 rounded-lg border text-xs ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}`}>
                   <div className="flex items-center gap-2 mb-2">
                     {qaStatus.passed ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-400" />
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
                     ) : (
-                      <AlertTriangle className="h-4 w-4 text-yellow-400" />
+                      <AlertTriangle className="h-4 w-4 text-destructive" />
                     )}
                     <span className="font-semibold">
                       QA {qaStatus.passed ? 'Passed' : 'Warnings'} — Attempt {qaStatus.attempt}/{qaStatus.maxAttempts}
@@ -544,7 +544,7 @@ export default function GeneratePage() {
                     <ul className="space-y-1 text-muted-foreground">
                       {qaStatus.issues.slice(0, 5).map((issue, i) => (
                         <li key={i} className="flex items-start gap-1">
-                          <span className="text-yellow-400 mt-0.5">•</span>
+                          <span className="text-destructive mt-0.5">•</span>
                           <span>{issue}</span>
                         </li>
                       ))}
