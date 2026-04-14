@@ -1,10 +1,13 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { getStyleById } from '@/lib/art-styles';
+import { getStyleById, type ArtStyle } from '@/lib/art-styles';
 import { postProcessImage } from '@/lib/post-process';
 import { runObjectiveQA } from '@/lib/qa-checks';
-import { Sparkles, Loader2, Upload, Copy, Save, RotateCcw, FileJson, Image as ImageIcon } from 'lucide-react';
+import {
+  Sparkles, Loader2, Upload, Copy, Save, RotateCcw, FileJson, Image as ImageIcon,
+  X as XIcon, RefreshCw,
+} from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useSprites } from '@/hooks/use-sprites';
 import { StyleSelector } from '@/components/generate/StyleSelector';
@@ -16,7 +19,30 @@ import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sp
 import { PRESET_PALETTES, type Palette } from '@/lib/palettes';
 
 const MAX_RETRIES = 3;
+const RECENT_KEY = 'voxpi_recent_gens';
+const RECENT_MAX = 10;
 let hasShownBgModelToast = false;
+
+interface RecentGen {
+  id: string;
+  sprite: SpriteSheet;
+  jsonOutput: string;
+  createdAt: string;
+}
+
+function loadRecents(): RecentGen[] {
+  try {
+    const raw = sessionStorage.getItem(RECENT_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveRecent(gen: RecentGen) {
+  try {
+    const existing = loadRecents();
+    const next = [gen, ...existing].slice(0, RECENT_MAX);
+    sessionStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch { /* ignore */ }
+}
 
 function extractPixelData(
   imageData: string, frameCount: number, frameWidth: number, frameHeight: number,
@@ -27,9 +53,8 @@ function extractPixelData(
       const expectedW = frameWidth * frameCount;
       if (img.naturalWidth !== expectedW) {
         console.warn(
-          `extractPixelData: image width ${img.naturalWidth} != expected ${expectedW} (frameWidth ${frameWidth} * frameCount ${frameCount}) — continuing with rescaled sampling`,
+          `extractPixelData: image width ${img.naturalWidth} != expected ${expectedW}`,
         );
-        // Not a hard error since stitching upstream should already match; we log and keep going.
       }
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -72,6 +97,22 @@ interface QAStatus {
   issues: string[]; suggestions: string[]; passed: boolean;
 }
 
+interface PostProcessSettings {
+  style: ArtStyle;
+  size: number;
+  paletteColors: string[] | undefined;
+}
+
+async function applyPostProcess(rawImage: string, settings: PostProcessSettings): Promise<string> {
+  return postProcessImage(
+    rawImage,
+    settings.style,
+    settings.size,
+    settings.size,
+    settings.paletteColors,
+  );
+}
+
 export default function GeneratePage() {
   const { addSprite } = useSprites();
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
@@ -85,9 +126,14 @@ export default function GeneratePage() {
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
+  const [phase, setPhase] = useState('');
   const [result, setResult] = useState<SpriteSheet | null>(null);
+  const [rawImage, setRawImage] = useState<string | null>(null);
   const [jsonOutput, setJsonOutput] = useState<string | null>(null);
   const [qaStatus, setQaStatus] = useState<QAStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recents, setRecents] = useState<RecentGen[]>(() => loadRecents());
+  const abortRef = useRef<AbortController | null>(null);
 
   const selectedStyle = getStyleById(styleId);
 
@@ -95,25 +141,40 @@ export default function GeneratePage() {
     setReferenceImage(dataUrl);
     setReferencePreview(dataUrl);
   }, []);
-
   const handleClearRef = useCallback(() => {
     setReferenceImage(null);
     setReferencePreview(null);
   }, []);
 
+  const handleCancel = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setGenerating(false);
+    setProgress(0);
+    setProgressMessage('');
+    setPhase('');
+    toast({ title: 'Generation cancelled' });
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     if (!referenceImage || !selectedStyle) return;
-    setGenerating(true); setProgress(0); setProgressMessage('Preparing...');
-    setResult(null); setJsonOutput(null); setQaStatus(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setGenerating(true); setProgress(0);
+    setResult(null); setJsonOutput(null); setQaStatus(null); setError(null); setRawImage(null);
     const size = parseInt(gridSize);
 
+    setPhase('Analyzing reference'); setProgress(10); setProgressMessage('Analyzing reference...');
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      if (controller.signal.aborted) break;
       try {
-        setProgressMessage(attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Analyzing reference...');
-        setProgress(attempt > 1 ? 5 : 10);
-        setProgressMessage(attempt > 1 ? `Retry ${attempt} — Generating...` : 'AI generating sprite...');
-        const pi = setInterval(() => setProgress(p => Math.min(p + 0.5, 60)), 500);
-        const { data, error } = await supabase.functions.invoke('generate-sprite', {
+        setPhase('Generating sprite'); setProgress(25);
+        setProgressMessage(attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES} — Generating...` : 'AI generating sprite...');
+        const pi = setInterval(() => setProgress(p => Math.min(p + 0.5, 55)), 500);
+        const { data, error: err } = await supabase.functions.invoke('generate-sprite', {
           body: {
             referenceImage, gridSize, viewingAngle, pose, frameCount, styleId,
             styleKeywords: selectedStyle.promptKeywords || selectedStyle.name,
@@ -122,24 +183,28 @@ export default function GeneratePage() {
           },
         });
         clearInterval(pi);
-        if (error) throw new Error(typeof data === 'object' && data?.error ? data.error : error.message || 'Failed');
+        if (controller.signal.aborted) break;
+        if (err) throw new Error(typeof data === 'object' && data?.error ? data.error : err.message || 'Failed');
         if (data.type !== 'generated-image' || !data.imageData) throw new Error('Unexpected response');
 
-        setProgress(65); setProgressMessage('Post-processing...');
-        let processed = data.imageData;
+        const rawImg = data.imageData as string;
+        setRawImage(rawImg);
+
+        setPhase('Removing background'); setProgress(60); setProgressMessage('Removing background...');
         if (!hasShownBgModelToast) {
           hasShownBgModelToast = true;
           toast({ title: 'Loading background-removal model', description: 'First-run ~4 MB download, then cached.' });
         }
-        processed = await postProcessImage(
-          processed,
-          selectedStyle,
+        let processed = rawImg;
+        setPhase('Quantizing palette'); setProgress(80); setProgressMessage('Post-processing...');
+        processed = await applyPostProcess(rawImg, {
+          style: selectedStyle,
           size,
-          size,
-          palette.colors.length > 0 ? palette.colors : undefined,
-        );
+          paletteColors: palette.colors.length > 0 ? palette.colors : undefined,
+        });
+        if (controller.signal.aborted) break;
 
-        setProgress(75); setProgressMessage('Quality checking...');
+        setProgress(85); setProgressMessage('Quality checking...');
         const objResult = await runObjectiveQA(processed, selectedStyle, size, size);
         let percResult = { passed: true, score: 7, issues: [] as string[], suggestions: [] as string[] };
         try {
@@ -154,6 +219,7 @@ export default function GeneratePage() {
         } catch {
           toast({ title: 'QA check failed', description: 'Generated sprite still saved.' });
         }
+        if (controller.signal.aborted) break;
 
         const allIssues = [...objResult.issues.map(i => i.message), ...percResult.issues];
         const allSugs = [...objResult.issues.map(i => i.suggestion), ...percResult.suggestions];
@@ -166,7 +232,7 @@ export default function GeneratePage() {
           continue;
         }
 
-        setProgress(90); setProgressMessage('Extracting data...');
+        setPhase('Done'); setProgress(95); setProgressMessage('Extracting data...');
         const fw = Number(data.frameWidth), fh = Number(data.frameHeight), fc = Number(data.frameCount) || 1;
         const extracted = await extractPixelData(processed, fc, fw, fh);
         setProgress(100); setProgressMessage('Done!');
@@ -179,26 +245,84 @@ export default function GeneratePage() {
           createdAt: new Date().toISOString(), collectionIds: [], tags: [selectedStyle.id],
           referenceImageUrl: referencePreview || undefined,
         };
+        const jsonOut = JSON.stringify({
+          palette: extracted.palette.slice(0, 64), frames: extracted.frames,
+          gridSize, viewingAngle, pose, style: selectedStyle.id,
+          frameWidth: fw, frameHeight: fh, description: data.description || '',
+          qa: { objectiveScore: objResult.score, perceptualScore: percResult.score, passed, issues: allIssues },
+        }, null, 2);
+
         setResult(sprite);
-        setJsonOutput(JSON.stringify({ palette: extracted.palette.slice(0, 64), frames: extracted.frames, gridSize, viewingAngle, pose, style: selectedStyle.id, frameWidth: fw, frameHeight: fh, description: data.description || '', qa: { objectiveScore: objResult.score, perceptualScore: percResult.score, passed, issues: allIssues } }, null, 2));
-        if (!passed) toast({ title: '⚠️ Generated with warnings', description: `QA issues after ${attempt} attempts.` });
+        setJsonOutput(jsonOut);
+
+        const recent: RecentGen = { id: sprite.id, sprite, jsonOutput: jsonOut, createdAt: sprite.createdAt };
+        saveRecent(recent);
+        setRecents(loadRecents());
+
+        if (!passed) toast({ title: 'Generated with warnings', description: `QA issues after ${attempt} attempts.` });
         break;
       } catch (err: any) {
+        if (controller.signal.aborted) break;
         if (attempt >= MAX_RETRIES) {
+          setError(err?.message || 'Generation failed');
           toast({ title: 'Generation failed', description: err?.message || 'Try again.' });
-          setProgress(0); setProgressMessage('');
+          setProgress(0); setProgressMessage(''); setPhase('');
         }
       }
     }
     setGenerating(false);
+    abortRef.current = null;
   }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview, palette]);
 
-  const handleSave = () => { if (result) { addSprite(result as any); toast({ title: '✓ Saved to library' }); } };
+  const handleReprocess = useCallback(async () => {
+    if (!rawImage || !selectedStyle || !result) return;
+    try {
+      const size = parseInt(gridSize);
+      toast({ title: 'Re-processing…' });
+      const processed = await applyPostProcess(rawImage, {
+        style: selectedStyle,
+        size,
+        paletteColors: palette.colors.length > 0 ? palette.colors : undefined,
+      });
+      const extracted = await extractPixelData(processed, result.frameCount, result.frameWidth, result.frameHeight);
+      const updated: SpriteSheet = {
+        ...result,
+        imageData: processed,
+        palette: extracted.palette.slice(0, 64),
+        pixelData: extracted.frames,
+      };
+      setResult(updated);
+      toast({ title: 'Re-processed' });
+    } catch (err: any) {
+      toast({ title: 'Re-process failed', description: err?.message || 'Unknown error' });
+    }
+  }, [rawImage, selectedStyle, result, gridSize, palette]);
+
+  const handleSave = () => { if (result) { addSprite(result); toast({ title: 'Saved to library' }); } };
   const handleDownloadPNG = () => { if (!result) return; const a = document.createElement('a'); a.href = result.imageData; a.download = `sprite_${result.pose}_${result.viewingAngle}.png`; a.click(); };
   const handleDownloadJSON = () => { if (!jsonOutput) return; const b = new Blob([jsonOutput], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = `sprite_${result?.pose}_${result?.viewingAngle}.json`; a.click(); URL.revokeObjectURL(u); };
   const handleCopyJSON = () => { if (!jsonOutput) return; navigator.clipboard.writeText(jsonOutput); toast({ title: 'Copied to clipboard' }); };
 
   const canGenerate = !!referenceImage && !!selectedStyle && !generating;
+
+  // Global Ctrl+Enter -> Generate
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        const tag = (document.activeElement?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        if (canGenerate) { e.preventDefault(); handleGenerate(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canGenerate, handleGenerate]);
+
+  const loadRecent = (gen: RecentGen) => {
+    setResult(gen.sprite);
+    setJsonOutput(gen.jsonOutput);
+    setError(null);
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -207,10 +331,10 @@ export default function GeneratePage() {
         <StyleSelector selectedId={styleId} onSelect={setStyleId} />
       </div>
 
-      {/* Two-panel layout */}
-      <div className="flex-1 flex min-h-0">
-        {/* LEFT: Config */}
-        <div className="w-64 flex-shrink-0 border-r border-border bg-card/20 flex flex-col overflow-y-auto">
+      {/* Responsive layout */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* LEFT / TOP: Config */}
+        <div className="w-full md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-border bg-card/20 flex flex-col md:overflow-y-auto max-h-[40vh] md:max-h-none overflow-y-auto">
           <div className="p-4 space-y-5 flex-1">
             <ReferenceUploader preview={referencePreview} onUpload={handleUpload} onClear={handleClearRef} />
             <GenerationConfig
@@ -221,62 +345,109 @@ export default function GeneratePage() {
             />
           </div>
           <div className="p-3 border-t border-border bg-card/30">
-            <Button onClick={handleGenerate} disabled={!canGenerate} className="w-full h-9 font-pixel text-[10px] gap-2 glow-box-green">
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {generating ? 'GENERATING...' : 'GENERATE'}
-            </Button>
+            {generating ? (
+              <Button onClick={handleCancel} variant="destructive" className="w-full h-9 font-pixel text-[10px] gap-2" aria-label="Cancel generation">
+                <XIcon className="h-3.5 w-3.5" />
+                CANCEL
+              </Button>
+            ) : (
+              <Button onClick={handleGenerate} disabled={!canGenerate} className="w-full h-9 font-pixel text-[10px] gap-2 glow-box-green" aria-label="Generate sprite (Ctrl+Enter)">
+                <Sparkles className="h-3.5 w-3.5" />
+                GENERATE
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* RIGHT: Canvas */}
+        {/* RIGHT / BOTTOM: Canvas */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {generating && (
             <div className="flex-shrink-0 px-4 py-2 border-b border-border bg-card/20">
               <GenerationProgress progress={progress} message={progressMessage} generating={generating} qaStatus={null} />
+              {phase && <p className="text-[10px] text-muted-foreground mt-1">{phase}</p>}
+            </div>
+          )}
+
+          {/* Recent rail */}
+          {recents.length > 0 && (
+            <div className="flex-shrink-0 px-4 py-2 border-b border-border bg-card/10">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[9px] text-muted-foreground uppercase">Recent</span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto">
+                {recents.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => loadRecent(r)}
+                    className="flex-shrink-0 h-10 w-10 rounded border border-border hover:border-primary/60 overflow-hidden bg-secondary/30"
+                    aria-label={`Load recent generation ${r.sprite.name}`}
+                    title={r.sprite.name}
+                  >
+                    <img src={r.sprite.imageData} alt="" className="h-full w-full object-contain" style={{ imageRendering: 'pixelated' }} />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           <div className="flex-1 overflow-auto p-4">
+            {generating && !result && (
+              <div className="h-full flex items-center justify-center">
+                <div className="animate-pulse rounded-xl border border-border bg-card/30 p-16 text-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
+                  <p className="text-xs text-muted-foreground">{phase || 'Working...'}</p>
+                </div>
+              </div>
+            )}
+            {!generating && !result && error && (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <p className="text-sm text-destructive mb-2">Generation failed</p>
+                <p className="text-[10px] text-muted-foreground mb-4 max-w-[300px]">{error}</p>
+                <Button size="sm" onClick={handleGenerate} className="gap-1.5">
+                  <RotateCcw className="h-3 w-3" /> Retry
+                </Button>
+              </div>
+            )}
             {result ? (
               <div className="h-full flex flex-col">
-                {/* Action bar */}
-                <div className="flex items-center justify-between mb-3 flex-shrink-0">
+                <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{result.name}</span>
                     <span className="text-[9px] text-muted-foreground">{result.frameWidth}×{result.frameHeight} · {result.frameCount}f</span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleGenerate} disabled={generating}>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleGenerate} disabled={generating} aria-label="Regenerate">
                       <RotateCcw className="h-3 w-3" /> Retry
                     </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleReprocess} disabled={!rawImage || generating} aria-label="Re-process">
+                      <RefreshCw className="h-3 w-3" /> Re-process
+                    </Button>
                     <div className="h-4 w-px bg-border" />
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadPNG}>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadPNG} aria-label="Download PNG">
                       <ImageIcon className="h-3 w-3" /> PNG
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadJSON}>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadJSON} aria-label="Download JSON">
                       <FileJson className="h-3 w-3" /> JSON
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleCopyJSON}>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleCopyJSON} aria-label="Copy JSON">
                       <Copy className="h-3 w-3" /> Copy
                     </Button>
                     <div className="h-4 w-px bg-border" />
-                    <Button size="sm" className="h-7 text-[10px] gap-1 font-semibold" onClick={handleSave}>
+                    <Button size="sm" className="h-7 text-[10px] gap-1 font-semibold" onClick={handleSave} aria-label="Save to library">
                       <Save className="h-3 w-3" /> Save
                     </Button>
                   </div>
                 </div>
 
-                {/* Preview */}
                 <div className="flex-1 min-h-0">
                   <SpritePreviewPlayer imageData={result.imageData} frameWidth={result.frameWidth} frameHeight={result.frameHeight} frameCount={result.frameCount} className="h-full" />
                 </div>
 
-                {/* Bottom bar: QA + Palette */}
-                <div className="flex-shrink-0 mt-3 flex gap-3">
+                <div className="flex-shrink-0 mt-3 flex gap-3 flex-wrap">
                   {qaStatus && (
-                    <div className={`flex-1 rounded-lg border p-3 text-[10px] ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                    <div className={`flex-1 min-w-[200px] rounded-lg border p-3 text-[10px] ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">QA {qaStatus.passed ? '✓ Passed' : '⚠ Warnings'}</span>
+                        <span className="font-semibold">QA {qaStatus.passed ? 'Passed' : 'Warnings'}</span>
                         <span className="text-muted-foreground ml-auto">
                           Obj {qaStatus.objectiveScore}/10 · AI {qaStatus.perceptualScore}/10
                           {qaStatus.attempt > 1 && ` · ${qaStatus.attempt} attempts`}
@@ -284,7 +455,7 @@ export default function GeneratePage() {
                       </div>
                       {qaStatus.issues.length > 0 && (
                         <ul className="space-y-0.5 text-muted-foreground mt-1">
-                          {qaStatus.issues.slice(0, 3).map((iss, i) => <li key={i}>• {iss}</li>)}
+                          {qaStatus.issues.slice(0, 3).map((iss, i) => <li key={i}>- {iss}</li>)}
                         </ul>
                       )}
                     </div>
@@ -301,7 +472,7 @@ export default function GeneratePage() {
                   )}
                 </div>
               </div>
-            ) : (
+            ) : !generating && !error && (
               <div className="h-full flex flex-col items-center justify-center text-center">
                 <div className="rounded-2xl bg-secondary/30 p-6 mb-4">
                   <Upload className="h-10 w-10 text-muted-foreground/40" />

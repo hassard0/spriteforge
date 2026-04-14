@@ -26,6 +26,8 @@ function SpriteCard({ sprite, selected, onToggle, onClick }: {
           : 'border-border bg-card hover:border-primary/40'
       }`}
       onClick={onClick}
+      draggable
+      onDragStart={(e) => e.dataTransfer.setData('text/sprite-id', sprite.id)}
     >
       {/* Checkbox */}
       <div className="absolute top-2 left-2 z-10">

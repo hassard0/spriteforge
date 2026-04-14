@@ -85,6 +85,16 @@ export function useSprites() {
     }
   }, []);
 
+  const renameCollection = useCallback((id: string, newName: string) => {
+    try {
+      const next = store.renameCollection(id, newName);
+      setCollections(next);
+    } catch (err: any) {
+      console.error('renameCollection failed', err);
+      toast({ title: 'Could not rename collection', description: err?.message || 'Unknown error' });
+    }
+  }, []);
+
   const removeSpriteFromCollection = useCallback((spriteId: string, colId: string) => {
     try {
       const next = store.removeSpriteFromCollection(spriteId, colId);
@@ -103,6 +113,7 @@ export function useSprites() {
     deleteSpritesById,
     addCollection,
     deleteCollectionById,
+    renameCollection,
     addSpriteToCollection,
     removeSpriteFromCollection,
   };

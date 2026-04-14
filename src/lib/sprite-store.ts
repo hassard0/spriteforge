@@ -67,6 +67,12 @@ export function addSpriteToCollection(spriteId: string, collectionId: string) {
   return sprites;
 }
 
+export function renameCollection(id: string, newName: string) {
+  const collections = getCollections().map(c => (c.id === id ? { ...c, name: newName } : c));
+  saveCollections(collections);
+  return collections;
+}
+
 export function removeSpriteFromCollection(spriteId: string, collectionId: string) {
   const sprites = getSprites().map(s =>
     s.id === spriteId

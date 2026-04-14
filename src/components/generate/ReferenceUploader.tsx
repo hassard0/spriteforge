@@ -22,7 +22,23 @@ export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => onUpload(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth, h = img.naturalHeight;
+        if (w < 32 || h < 32) {
+          toast({ title: 'Image too small', description: `Minimum 32×32 (got ${w}×${h})` });
+          return;
+        }
+        if (w < 50 || h < 50 || w > 2000 || h > 2000) {
+          toast({ title: 'Unusual dimensions', description: `Recommended 50–2000 px (got ${w}×${h})` });
+        }
+        onUpload(dataUrl);
+      };
+      img.onerror = () => toast({ title: 'Could not read image' });
+      img.src = dataUrl;
+    };
     reader.readAsDataURL(file);
   }, [onUpload]);
 

@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, FolderOpen, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, FolderOpen, Image as ImageIcon, Pencil, Check } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import type { Collection } from '@/types/sprite';
 
 const COLORS = [
@@ -17,11 +18,14 @@ const COLORS = [
 ];
 
 export default function CollectionsPage() {
-  const { collections, sprites, addCollection, deleteCollectionById } = useSprites();
+  const { collections, sprites, addCollection, deleteCollectionById, renameCollection, addSpriteToCollection } = useSprites();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newColor, setNewColor] = useState(COLORS[0]);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   const handleCreate = () => {
     if (!newName.trim()) return;
@@ -78,7 +82,20 @@ export default function CollectionsPage() {
                 return (
                   <div
                     key={col.id}
-                    className="rounded-xl border border-border bg-card p-4 space-y-3 hover:border-primary/30 transition-all group"
+                    onDragOver={(e) => { e.preventDefault(); setDragOverId(col.id); }}
+                    onDragLeave={() => setDragOverId((prev) => (prev === col.id ? null : prev))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverId(null);
+                      const spriteId = e.dataTransfer.getData('text/sprite-id');
+                      if (spriteId) {
+                        addSpriteToCollection(spriteId, col.id);
+                        toast({ title: 'Added to collection', description: col.name });
+                      }
+                    }}
+                    className={`rounded-xl border bg-card p-4 space-y-3 hover:border-primary/30 transition-all group ${
+                      dragOverId === col.id ? 'border-primary ring-2 ring-primary/40' : 'border-border'
+                    }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2.5">
@@ -87,20 +104,63 @@ export default function CollectionsPage() {
                           style={{ backgroundColor: col.color }}
                         />
                         <div>
-                          <h3 className="font-semibold text-sm">{col.name}</h3>
+                          {editingId === col.id ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                className="h-6 text-xs bg-secondary/30"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    if (editingName.trim()) renameCollection(col.id, editingName.trim());
+                                    setEditingId(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingId(null);
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={() => {
+                                  if (editingName.trim()) renameCollection(col.id, editingName.trim());
+                                  setEditingId(null);
+                                }}
+                                aria-label="Save name"
+                              >
+                                <Check className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <h3 className="font-semibold text-sm">{col.name}</h3>
+                          )}
                           {col.description && (
                             <p className="text-[10px] text-muted-foreground mt-0.5">{col.description}</p>
                           )}
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => deleteCollectionById(col.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary"
+                          onClick={() => { setEditingId(col.id); setEditingName(col.name); }}
+                          aria-label="Rename collection"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteCollectionById(col.id)}
+                          aria-label="Delete collection"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
