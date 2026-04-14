@@ -2,7 +2,6 @@ import { useRef, useCallback } from 'react';
 import { Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
 
 interface Props {
   preview: string | null;
@@ -12,10 +11,6 @@ interface Props {
 
 export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const openPicker = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
 
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -43,7 +38,7 @@ export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
   }, [handleFile]);
 
   return (
-    <div className="space-y-3">
+    <div>
       <input
         ref={fileInputRef}
         type="file"
@@ -53,87 +48,29 @@ export function ReferenceUploader({ preview, onUpload, onClear }: Props) {
       />
 
       <div
-        onClick={openPicker}
+        onClick={() => fileInputRef.current?.click()}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
-        className={cn(
-          'group relative overflow-hidden rounded-2xl border-2 border-dashed transition-all',
+        className={`flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed transition-all ${
           preview
-            ? 'border-primary/30 bg-card p-3 hover:border-primary/50'
-            : 'border-border bg-secondary/10 p-5 hover:border-primary/40 hover:bg-secondary/20'
-        )}
+            ? 'border-primary/30 bg-card p-1.5 hover:border-primary/50'
+            : 'border-border bg-secondary/10 p-4 hover:border-primary/40 hover:bg-secondary/20'
+        }`}
       >
         {preview ? (
-          <div className="w-full space-y-3">
-            <div className="overflow-hidden rounded-xl border border-border bg-background/50 p-3">
-              <img
-                src={preview}
-                alt="Reference"
-                className="h-44 w-full object-contain"
-                style={{ imageRendering: 'pixelated' }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium text-foreground">Reference locked in</p>
-                <p className="text-xs text-muted-foreground">Click the card or replace it with another character image.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openPicker();
-                  }}
-                >
-                  Replace
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-xs text-muted-foreground"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onClear();
-                  }}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
+          <div className="relative">
+            <img src={preview} alt="Reference" className="max-h-[100px] max-w-full object-contain rounded" style={{ imageRendering: 'pixelated' }} />
+            <Button type="button" variant="ghost" size="icon" className="absolute -right-1 -top-1 h-5 w-5 rounded-full bg-card border border-border text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); onClear(); }}>
+              <X className="h-3 w-3" />
+            </Button>
           </div>
         ) : (
-          <div className="flex w-full flex-col items-center gap-3 rounded-xl bg-background/30 px-4 py-8 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <Upload className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Drop character art here</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">PNG, JPG, or WEBP up to 10MB</p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 text-xs"
-              onClick={(event) => {
-                event.stopPropagation();
-                openPicker();
-              }}
-            >
-              Browse image
-            </Button>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <Upload className="h-5 w-5 text-muted-foreground" />
+            <p className="text-[10px] text-muted-foreground">Drop image here</p>
           </div>
         )}
       </div>
-
-      <p className="text-[11px] leading-4 text-muted-foreground">
-        Use a clean, full-body character reference for the best silhouette and pose consistency.
-      </p>
     </div>
   );
 }
