@@ -17,14 +17,8 @@ import { GenerationProgress } from '@/components/generate/GenerationProgress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
 import { PRESET_PALETTES, type Palette } from '@/lib/palettes';
-import {
-  describeReferenceImage,
-  detectVisionBackend,
-  type VisionProgress,
-} from '@/lib/local-vision';
 
 const MAX_RETRIES = 1;
-const LOCAL_VISION_KEY = 'voxpi_use_local_vision';
 const RECENT_KEY = 'voxpi_recent_gens';
 const RECENT_MAX = 10;
 let hasShownBgModelToast = false;
@@ -139,24 +133,7 @@ export default function GeneratePage() {
   const [qaStatus, setQaStatus] = useState<QAStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recents, setRecents] = useState<RecentGen[]>(() => loadRecents());
-  const [useLocalVision, setUseLocalVision] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(LOCAL_VISION_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [visionDownload, setVisionDownload] = useState<VisionProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  // Re-read preference if it changes via the settings page tab.
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === LOCAL_VISION_KEY) setUseLocalVision(e.newValue === 'true');
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
 
   const selectedStyle = getStyleById(styleId);
 
@@ -187,77 +164,11 @@ export default function GeneratePage() {
     abortRef.current = controller;
     setGenerating(true); setProgress(0);
     setResult(null); setJsonOutput(null); setQaStatus(null); setError(null); setRawImage(null);
-    setVisionDownload(null);
     const size = parseInt(gridSize);
 
-    // Stage 1: vision analysis. If the user opted in to local vision AND WebGPU
-    // is available, run SmolVLM in-browser and forward the resulting text as a
-    // precomputed description. Any failure falls back to server-side Gemini.
-    let precomputedDescription: string | undefined;
-    if (useLocalVision) {
-      const backend = await detectVisionBackend();
-      if (backend === 'webgpu') {
-        try {
-          setPhase('Analyzing reference locally');
-          setProgress(5);
-          setProgressMessage('Loading local vision model…');
-          const desc = await describeReferenceImage(referenceImage, {
-            signal: controller.signal,
-            onProgress: (p) => {
-              setVisionDownload(p);
-              if (p.status === 'downloading' && typeof p.progress === 'number') {
-                const pct = 5 + p.progress * 15; // 5% -> 20%
-                setProgress(pct);
-                if (p.loaded && p.total) {
-                  const mb = (n: number) => (n / (1024 * 1024)).toFixed(0);
-                  setProgressMessage(
-                    `Downloading model ${mb(p.loaded)}/${mb(p.total)} MB…`,
-                  );
-                } else {
-                  setProgressMessage(p.message || 'Downloading model…');
-                }
-              } else if (p.status === 'loading') {
-                setProgressMessage(p.message || 'Loading model…');
-              } else if (p.status === 'inferring') {
-                setProgress(20);
-                setProgressMessage('Analyzing reference locally…');
-              }
-            },
-          });
-          if (desc && desc.trim().length > 20) {
-            precomputedDescription = desc.trim();
-            console.log('[local-vision] description:', precomputedDescription);
-          } else {
-            console.warn('[local-vision] returned empty/short description, falling back to server');
-          }
-        } catch (err: any) {
-          if (!controller.signal.aborted) {
-            console.error('[local-vision] failed:', err);
-            toast({
-              title: 'Local vision failed',
-              description: 'Falling back to server vision.',
-            });
-          }
-          precomputedDescription = undefined;
-        } finally {
-          setVisionDownload(null);
-        }
-      } else {
-        console.log('[local-vision] WebGPU unavailable, using server vision');
-      }
-    }
-
-    if (controller.signal.aborted) {
-      setGenerating(false);
-      abortRef.current = null;
-      return;
-    }
-
-    setPhase(precomputedDescription ? 'Generating sprite' : 'Analyzing reference');
-    setProgress(precomputedDescription ? 25 : 10);
-    setProgressMessage(
-      precomputedDescription ? 'AI generating sprite...' : 'Analyzing reference...',
-    );
+    setPhase('Analyzing reference');
+    setProgress(10);
+    setProgressMessage('Analyzing reference...');
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (controller.signal.aborted) break;
@@ -271,7 +182,6 @@ export default function GeneratePage() {
             styleKeywords: selectedStyle.promptKeywords || selectedStyle.name,
             styleNegative: selectedStyle.negativePrompt || '',
             palette: { id: palette.id, colors: palette.colors },
-            ...(precomputedDescription ? { precomputedDescription } : {}),
           },
         });
         clearInterval(pi);
@@ -337,7 +247,7 @@ export default function GeneratePage() {
     }
     setGenerating(false);
     abortRef.current = null;
-  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview, palette, useLocalVision]);
+  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview, palette]);
 
   const handleReprocess = useCallback(async () => {
     if (!rawImage || !selectedStyle || !result) return;
@@ -433,7 +343,6 @@ export default function GeneratePage() {
                 message={progressMessage}
                 generating={generating}
                 qaStatus={null}
-                visionDownload={visionDownload}
               />
               {phase && <p className="text-[10px] text-muted-foreground mt-1">{phase}</p>}
             </div>

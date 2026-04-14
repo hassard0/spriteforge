@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { clearVisionCache, detectVisionBackend, type VisionAvailability } from '@/lib/local-vision';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -14,7 +13,6 @@ import { Save, RotateCcw, Download, Upload, Shield, Trash2 } from 'lucide-react'
 import * as store from '@/lib/sprite-store';
 
 const SETTINGS_KEY = 'sprite-gen-settings';
-const LOCAL_VISION_KEY = 'voxpi_use_local_vision';
 
 function loadSettings() {
   try {
@@ -37,45 +35,6 @@ export default function SettingsPage() {
   const [importData, setImportData] = useState<any>(null);
   const [showReset, setShowReset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Local vision (client-side SmolVLM) state
-  const [useLocalVision, setUseLocalVision] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(LOCAL_VISION_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [visionBackend, setVisionBackend] = useState<VisionAvailability | 'detecting'>('detecting');
-
-  useEffect(() => {
-    detectVisionBackend().then(setVisionBackend).catch(() => setVisionBackend('unavailable'));
-  }, []);
-
-  const handleLocalVisionToggle = (checked: boolean) => {
-    if (checked && visionBackend !== 'webgpu') {
-      toast({
-        title: 'WebGPU not available',
-        description: 'Local vision requires WebGPU. Using server vision instead.',
-      });
-      return;
-    }
-    setUseLocalVision(checked);
-    try {
-      localStorage.setItem(LOCAL_VISION_KEY, checked ? 'true' : 'false');
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const handleClearVisionCache = async () => {
-    try {
-      await clearVisionCache();
-      toast({ title: 'Cleared cached vision model' });
-    } catch (err: any) {
-      toast({ title: 'Clear failed', description: err?.message || 'Unknown error' });
-    }
-  };
 
   const handleSave = () => {
     localStorage.setItem(
@@ -238,50 +197,6 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-muted-foreground">Show grid in preview by default</p>
               </div>
               <Switch checked={darkGrid} onCheckedChange={setDarkGrid} />
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-border bg-card/50 p-5 space-y-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Vision (image analysis)
-            </h2>
-            <div className="flex items-center justify-between">
-              <div className="pr-4">
-                <Label className="text-xs">Run vision locally (browser-only, no API call)</Label>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Uses SmolVLM-500M running on WebGPU. ~500 MB download on first use,
-                  then cached. Falls back to server vision if WebGPU isn&apos;t available.
-                </p>
-              </div>
-              <Switch
-                checked={useLocalVision}
-                onCheckedChange={handleLocalVisionToggle}
-                disabled={visionBackend === 'detecting'}
-              />
-            </div>
-            <div className="text-[10px]">
-              {visionBackend === 'detecting' && (
-                <span className="text-muted-foreground">Detecting GPU…</span>
-              )}
-              {visionBackend === 'webgpu' && (
-                <span className="text-primary">✓ WebGPU detected — local vision available</span>
-              )}
-              {(visionBackend === 'wasm' || visionBackend === 'unavailable') && (
-                <span className="text-muted-foreground">
-                  ✗ WebGPU not available — local vision will fall back to server
-                </span>
-              )}
-            </div>
-            <div>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="text-xs gap-1.5"
-                onClick={handleClearVisionCache}
-                aria-label="Clear cached vision model"
-              >
-                <Trash2 className="h-3 w-3" /> Clear cached vision model
-              </Button>
             </div>
           </section>
 

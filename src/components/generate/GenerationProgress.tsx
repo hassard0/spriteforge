@@ -1,6 +1,5 @@
 import { Progress } from '@/components/ui/progress';
-import { Loader2, CheckCircle2, AlertTriangle, RotateCcw, Download } from 'lucide-react';
-import type { VisionProgress } from '@/lib/local-vision';
+import { Loader2, CheckCircle2, AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface QAStatus {
   attempt: number;
@@ -17,16 +16,9 @@ interface Props {
   message: string;
   generating: boolean;
   qaStatus: QAStatus | null;
-  visionDownload?: VisionProgress | null;
 }
 
-function formatBytes(n: number): string {
-  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(0)} MB`;
-  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${n} B`;
-}
-
-export function GenerationProgress({ progress, message, generating, qaStatus, visionDownload }: Props) {
+export function GenerationProgress({ progress, message, generating, qaStatus }: Props) {
   if (!generating && !qaStatus) return null;
 
   return (
@@ -42,37 +34,6 @@ export function GenerationProgress({ progress, message, generating, qaStatus, vi
             </div>
           </div>
           <Progress value={progress} className="h-1.5" />
-
-          {/* Local vision model download progress (first run only, ~500 MB) */}
-          {visionDownload && visionDownload.status === 'downloading' && (
-            <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 p-2 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Download className="h-3 w-3 text-primary flex-shrink-0" />
-                <span className="text-[10px] font-medium">Downloading vision model</span>
-                {typeof visionDownload.progress === 'number' && (
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    {Math.round(visionDownload.progress * 100)}%
-                  </span>
-                )}
-              </div>
-              {visionDownload.loaded !== undefined && visionDownload.total !== undefined && (
-                <p className="text-[9px] text-muted-foreground">
-                  {formatBytes(visionDownload.loaded)} / {formatBytes(visionDownload.total)}
-                </p>
-              )}
-              <Progress
-                value={
-                  typeof visionDownload.progress === 'number'
-                    ? visionDownload.progress * 100
-                    : 0
-                }
-                className="h-1"
-              />
-              <p className="text-[9px] text-muted-foreground/70">
-                First-run only — cached in your browser after this.
-              </p>
-            </div>
-          )}
         </div>
       )}
 
