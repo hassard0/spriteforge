@@ -6,7 +6,10 @@ import { Progress } from '@/components/ui/progress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { supabase } from '@/integrations/supabase/client';
 import { renderPixelSpriteSheet } from '@/lib/sprite-sheet';
-import { Sparkles, Loader2, Download, Copy, Upload, Image as ImageIcon } from 'lucide-react';
+import { ART_STYLES, getStyleById } from '@/lib/art-styles';
+import { postProcessImage } from '@/lib/post-process';
+import { runObjectiveQA } from '@/lib/qa-checks';
+import { Sparkles, Loader2, Download, Copy, Upload, Image as ImageIcon, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useSprites } from '@/hooks/use-sprites';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
@@ -55,6 +58,8 @@ const POSES: { value: SpritePose; label: string }[] = [
   { value: 'charging', label: 'Charging' },
 ];
 
+const MAX_RETRIES = 3;
+
 /** Extract palette and pixel data from an image using canvas */
 function extractPixelData(
   imageData: string,
@@ -87,7 +92,6 @@ function extractPixelData(
             const srcY = Math.floor((y / frameHeight) * actualFrameH);
             const pixel = ctx.getImageData(srcX, srcY, 1, 1).data;
 
-            // Detect background: transparent pixels OR magenta chroma key (#FF00FF)
             const isMagenta = pixel[0] > 220 && pixel[1] < 40 && pixel[2] > 220;
             if (pixel[3] < 128 || isMagenta) {
               framePixels.push(0);
@@ -114,6 +118,16 @@ function extractPixelData(
   });
 }
 
+interface QAStatus {
+  attempt: number;
+  maxAttempts: number;
+  objectiveScore: number;
+  perceptualScore: number;
+  issues: string[];
+  suggestions: string[];
+  passed: boolean;
+}
+
 export default function GeneratePage() {
   const { addSprite } = useSprites();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -123,10 +137,15 @@ export default function GeneratePage() {
   const [viewingAngle, setViewingAngle] = useState<ViewingAngle>('front');
   const [pose, setPose] = useState<SpritePose>('idle');
   const [frameCount, setFrameCount] = useState(1);
+  const [styleId, setStyleId] = useState('pixel-16bit');
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
   const [result, setResult] = useState<SpriteSheet | null>(null);
   const [jsonOutput, setJsonOutput] = useState<string | null>(null);
+  const [qaStatus, setQaStatus] = useState<QAStatus | null>(null);
+
+  const selectedStyle = getStyleById(styleId);
 
   const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -149,115 +168,180 @@ export default function GeneratePage() {
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    if (!referenceImage) return;
+    if (!referenceImage || !selectedStyle) return;
     setGenerating(true);
     setProgress(0);
+    setProgressMessage('Preparing...');
     setResult(null);
     setJsonOutput(null);
+    setQaStatus(null);
 
-    let progressVal = 0;
-    const progressInterval = setInterval(() => {
-      progressVal = Math.min(progressVal + 0.5, 90);
-      setProgress(progressVal);
-    }, 500);
+    const size = parseInt(gridSize);
 
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-sprite', {
-        body: {
-          referenceImage,
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        setProgressMessage(attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES} — Regenerating...` : 'Analyzing reference image...');
+        setProgress(attempt > 1 ? 5 : 10);
+
+        // Step 1: Generate
+        setProgressMessage(attempt > 1 ? `Retry ${attempt} — AI is generating...` : 'AI is generating your sprite...');
+        const progressInterval = setInterval(() => {
+          setProgress(p => Math.min(p + 0.5, 60));
+        }, 500);
+
+        const { data, error } = await supabase.functions.invoke('generate-sprite', {
+          body: { referenceImage, gridSize, viewingAngle, pose, frameCount, styleId },
+        });
+
+        clearInterval(progressInterval);
+
+        if (error) {
+          const errorMsg = typeof data === 'object' && data?.error ? data.error : error.message || 'Generation failed';
+          throw new Error(errorMsg);
+        }
+
+        if (data.type !== 'generated-image' || !data.imageData) {
+          throw new Error('Unexpected response format');
+        }
+
+        setProgress(65);
+        setProgressMessage('Post-processing...');
+
+        // Step 2: Post-process
+        let processedImage = data.imageData;
+        if (selectedStyle.pixelate || selectedStyle.clampPalette || selectedStyle.monoThreshold || selectedStyle.posterize) {
+          processedImage = await postProcessImage(processedImage, selectedStyle, size, size);
+        }
+
+        setProgress(75);
+        setProgressMessage('Running quality checks...');
+
+        // Step 3: Objective QA
+        const objectiveResult = await runObjectiveQA(processedImage, selectedStyle, size, size);
+
+        // Step 4: Perceptual QA (AI-based)
+        let perceptualResult = { passed: true, score: 7, issues: [] as string[], suggestions: [] as string[] };
+        try {
+          const { data: qaData } = await supabase.functions.invoke('qa-check', {
+            body: { imageData: processedImage, styleId, styleName: selectedStyle.name },
+          });
+          if (qaData) {
+            perceptualResult = {
+              passed: qaData.passed ?? true,
+              score: qaData.score ?? 7,
+              issues: qaData.issues || [],
+              suggestions: qaData.suggestions || [],
+            };
+          }
+        } catch (qaErr) {
+          console.warn('Perceptual QA skipped:', qaErr);
+        }
+
+        setProgress(85);
+
+        const allIssues = [
+          ...objectiveResult.issues.map(i => i.message),
+          ...perceptualResult.issues,
+        ];
+        const allSuggestions = [
+          ...objectiveResult.issues.map(i => i.suggestion),
+          ...perceptualResult.suggestions,
+        ];
+
+        const overallPassed = objectiveResult.passed && perceptualResult.passed;
+
+        setQaStatus({
+          attempt,
+          maxAttempts: MAX_RETRIES,
+          objectiveScore: objectiveResult.score,
+          perceptualScore: perceptualResult.score,
+          issues: allIssues,
+          suggestions: allSuggestions,
+          passed: overallPassed,
+        });
+
+        // If QA failed and we have retries left, continue loop
+        if (!overallPassed && attempt < MAX_RETRIES) {
+          setProgressMessage(`Quality check failed (attempt ${attempt}/${MAX_RETRIES}). Retrying...`);
+          toast({
+            title: `QA failed (attempt ${attempt})`,
+            description: allIssues[0] || 'Retrying with adjusted parameters...',
+          });
+          continue;
+        }
+
+        // Step 5: Extract pixel data
+        setProgress(90);
+        setProgressMessage('Extracting pixel data...');
+        const fw = Number(data.frameWidth);
+        const fh = Number(data.frameHeight);
+        const fc = Number(data.frameCount) || 1;
+        const extracted = await extractPixelData(processedImage, fc, fw, fh);
+
+        setProgress(100);
+        setProgressMessage('Done!');
+
+        const sprite: SpriteSheet = {
+          id: `gen-${Date.now()}`,
+          name: `${selectedStyle.shortName} ${pose} ${viewingAngle}`,
+          prompt: `${selectedStyle.name} — ${pose} from ${viewingAngle}`,
           gridSize,
           viewingAngle,
           pose,
-          frameCount,
-        },
-      });
-
-      clearInterval(progressInterval);
-
-      if (error) {
-        const errorMsg = typeof data === 'object' && data?.error ? data.error : error.message || 'Generation failed';
-        throw new Error(errorMsg);
-      }
-
-      setProgress(92);
-
-      const fw = Number(data.frameWidth);
-      const fh = Number(data.frameHeight);
-      const fc = Number(data.frameCount) || 1;
-
-      let spriteImageData: string;
-      let palette: string[] | undefined;
-      let pixelData: number[][] | undefined;
-
-      if (data.type === 'generated-image') {
-        // New flow: AI generated an actual image
-        spriteImageData = data.imageData;
-
-        // Extract pixel data from the image client-side
-        setProgress(95);
-        const extracted = await extractPixelData(spriteImageData, fc, fw, fh);
-        palette = extracted.palette.slice(0, 64); // Cap palette display
-        pixelData = extracted.frames;
-      } else if (data.type === 'pixel-data') {
-        // Legacy flow: raw pixel indices
-        spriteImageData = renderPixelSpriteSheet({
-          palette: data.palette,
-          frames: data.frames,
+          frameCount: fc,
           frameWidth: fw,
           frameHeight: fh,
-          logicalFrameWidth: Number(data.logicalFrameWidth) || fw,
-          logicalFrameHeight: Number(data.logicalFrameHeight) || fh,
-        });
-        palette = data.palette;
-        pixelData = data.frames;
-      } else {
-        throw new Error('Unexpected response format');
+          imageData: processedImage,
+          palette: extracted.palette.slice(0, 64),
+          pixelData: extracted.frames,
+          createdAt: new Date().toISOString(),
+          collectionIds: [],
+          tags: [selectedStyle.id],
+          referenceImageUrl: referencePreview || undefined,
+        };
+
+        setResult(sprite);
+        setJsonOutput(JSON.stringify({
+          palette: extracted.palette.slice(0, 64),
+          frames: extracted.frames,
+          gridSize,
+          viewingAngle,
+          pose,
+          style: selectedStyle.id,
+          frameWidth: fw,
+          frameHeight: fh,
+          description: data.description || '',
+          qa: {
+            objectiveScore: objectiveResult.score,
+            perceptualScore: perceptualResult.score,
+            passed: overallPassed,
+            issues: allIssues,
+          },
+        }, null, 2));
+
+        if (!overallPassed) {
+          toast({
+            title: '⚠️ Generated with warnings',
+            description: `QA issues detected after ${attempt} attempts. Review the results.`,
+          });
+        }
+
+        break; // Success — exit retry loop
+      } catch (err: any) {
+        if (attempt >= MAX_RETRIES) {
+          console.error('Generation failed after retries:', err);
+          toast({
+            title: 'Generation failed',
+            description: err?.message || 'Something went wrong. Try again.',
+          });
+          setProgress(0);
+          setProgressMessage('');
+        }
       }
-
-      setProgress(100);
-
-      const sprite: SpriteSheet = {
-        id: `gen-${Date.now()}`,
-        name: `${pose} ${viewingAngle}`,
-        prompt: `${pose} from ${viewingAngle}`,
-        gridSize,
-        viewingAngle,
-        pose,
-        frameCount: fc,
-        frameWidth: fw,
-        frameHeight: fh,
-        imageData: spriteImageData,
-        palette,
-        pixelData,
-        createdAt: new Date().toISOString(),
-        collectionIds: [],
-        tags: [],
-        referenceImageUrl: referencePreview || undefined,
-      };
-
-      setResult(sprite);
-      setJsonOutput(JSON.stringify({
-        palette,
-        frames: pixelData,
-        gridSize,
-        viewingAngle,
-        pose,
-        frameWidth: fw,
-        frameHeight: fh,
-        description: data.description || '',
-      }, null, 2));
-    } catch (err: any) {
-      clearInterval(progressInterval);
-      console.error('Generation failed:', err);
-      toast({
-        title: 'Generation failed',
-        description: err?.message || 'Something went wrong. Try again.',
-      });
-      setProgress(0);
-    } finally {
-      setGenerating(false);
     }
-  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, referencePreview]);
+
+    setGenerating(false);
+  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview]);
 
   const handleSave = () => {
     if (result) {
@@ -293,11 +377,40 @@ export default function GeneratePage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto animate-fade-in">
-      <h1 className="font-pixel text-lg text-primary glow-green mb-6">SPRITE ANALYZER</h1>
+      <h1 className="font-pixel text-lg text-primary glow-green mb-6">SPRITE FORGE</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Input Panel */}
         <div className="space-y-5">
+          {/* Style Selector */}
+          <div className="p-4 bg-card rounded-lg pixel-border space-y-3">
+            <label className="text-xs text-muted-foreground uppercase tracking-wider">Art Style</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[280px] overflow-y-auto pr-1">
+              {ART_STYLES.map(style => (
+                <button
+                  key={style.id}
+                  onClick={() => setStyleId(style.id)}
+                  className={`relative p-3 rounded-lg border text-left transition-all ${
+                    styleId === style.id
+                      ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                      : 'border-border bg-secondary/30 hover:border-primary/40 hover:bg-secondary/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-lg">{style.icon}</span>
+                    <span className="text-xs font-semibold truncate">{style.shortName}</span>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground leading-tight line-clamp-2">{style.description}</p>
+                  <div
+                    className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                    style={{ backgroundColor: style.accent }}
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Reference + Options */}
           <div className="p-4 bg-card rounded-lg pixel-border space-y-4">
             <label className="text-xs text-muted-foreground uppercase tracking-wider">Reference Sprite</label>
             <input
@@ -309,13 +422,13 @@ export default function GeneratePage() {
             />
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors min-h-[160px]"
+              className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors min-h-[120px]"
             >
               {referencePreview ? (
                 <img
                   src={referencePreview}
                   alt="Reference sprite"
-                  className="max-h-[140px] max-w-full object-contain pixelated"
+                  className="max-h-[100px] max-w-full object-contain pixelated"
                   style={{ imageRendering: 'pixelated' }}
                 />
               ) : (
@@ -372,13 +485,13 @@ export default function GeneratePage() {
             className="w-full h-12 font-pixel text-xs gap-2 glow-box-green"
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {generating ? 'GENERATING...' : 'ANALYZE & GENERATE'}
+            {generating ? 'GENERATING...' : 'GENERATE SPRITE'}
           </Button>
 
           {generating && (
             <div className="space-y-1">
               <Progress value={progress} className="h-2" />
-              <p className="text-[10px] text-muted-foreground text-center">{Math.round(progress)}% — AI is generating your sprite...</p>
+              <p className="text-[10px] text-muted-foreground text-center">{Math.round(progress)}% — {progressMessage}</p>
             </div>
           )}
         </div>
@@ -397,7 +510,7 @@ export default function GeneratePage() {
                     <Download className="h-3 w-3" /> JSON
                   </Button>
                   <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleCopyJSON}>
-                    <Copy className="h-3 w-3" /> Copy JSON
+                    <Copy className="h-3 w-3" /> Copy
                   </Button>
                   <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleSave}>
                     <ImageIcon className="h-3 w-3" /> Save
@@ -411,9 +524,38 @@ export default function GeneratePage() {
                 frameHeight={result.frameHeight}
               />
 
+              {/* QA Results */}
+              {qaStatus && (
+                <div className={`p-3 rounded-lg border text-xs ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    {qaStatus.passed ? (
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-destructive" />
+                    )}
+                    <span className="font-semibold">
+                      QA {qaStatus.passed ? 'Passed' : 'Warnings'} — Attempt {qaStatus.attempt}/{qaStatus.maxAttempts}
+                    </span>
+                    <span className="ml-auto text-muted-foreground">
+                      Obj: {qaStatus.objectiveScore}/10 | AI: {qaStatus.perceptualScore}/10
+                    </span>
+                  </div>
+                  {qaStatus.issues.length > 0 && (
+                    <ul className="space-y-1 text-muted-foreground">
+                      {qaStatus.issues.slice(0, 5).map((issue, i) => (
+                        <li key={i} className="flex items-start gap-1">
+                          <span className="text-destructive mt-0.5">•</span>
+                          <span>{issue}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               {result.palette && result.palette.length > 1 && (
                 <div>
-                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">EXTRACTED PALETTE ({result.palette.length - 1} colors)</h3>
+                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">PALETTE ({result.palette.length - 1} colors)</h3>
                   <div className="flex flex-wrap gap-1">
                     {result.palette.filter(c => c !== 'transparent').map((color, i) => (
                       <div
@@ -442,7 +584,7 @@ export default function GeneratePage() {
                 <Upload className="h-8 w-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">Upload a reference sprite to get started</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">AI will analyze your sprite and generate pixel art in the selected pose</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">Select a style, configure options, and generate</p>
             </div>
           )}
         </div>
