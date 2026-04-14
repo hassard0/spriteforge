@@ -43,14 +43,14 @@ export function GenerationProgress({ progress, message, generating, qaStatus }: 
           className={`rounded-lg border p-4 space-y-3 ${
             qaStatus.passed
               ? 'border-primary/30 bg-primary/5'
-              : 'border-yellow-500/30 bg-yellow-500/5'
+              : 'border-accent/40 bg-accent/10'
           }`}
         >
           <div className="flex items-center gap-2">
             {qaStatus.passed ? (
               <CheckCircle2 className="h-4 w-4 text-primary flex-shrink-0" />
             ) : (
-              <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
+              <AlertTriangle className="h-4 w-4 text-accent-foreground flex-shrink-0" />
             )}
             <span className="text-xs font-semibold">
               Quality Check {qaStatus.passed ? 'Passed' : '— Issues Detected'}
@@ -76,7 +76,7 @@ export function GenerationProgress({ progress, message, generating, qaStatus }: 
               <ul className="space-y-1">
                 {qaStatus.issues.slice(0, 4).map((issue, i) => (
                   <li key={i} className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-                    <span className="text-yellow-500 mt-px">•</span>
+                    <span className="text-accent-foreground mt-px">•</span>
                     {issue}
                   </li>
                 ))}
@@ -106,7 +106,7 @@ export function GenerationProgress({ progress, message, generating, qaStatus }: 
 
 function ScoreBar({ label, score }: { label: string; score: number }) {
   const pct = (score / 10) * 100;
-  const color = score >= 7 ? 'bg-primary' : score >= 4 ? 'bg-yellow-500' : 'bg-destructive';
+  const color = score >= 7 ? 'bg-primary' : score >= 4 ? 'bg-accent' : 'bg-destructive';
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
