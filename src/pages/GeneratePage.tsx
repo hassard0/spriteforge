@@ -1,66 +1,21 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
-import { Progress } from '@/components/ui/progress';
-import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import { supabase } from '@/integrations/supabase/client';
-import { renderPixelSpriteSheet } from '@/lib/sprite-sheet';
-import { ART_STYLES, getStyleById } from '@/lib/art-styles';
+import { getStyleById } from '@/lib/art-styles';
 import { postProcessImage } from '@/lib/post-process';
 import { runObjectiveQA } from '@/lib/qa-checks';
-import { Sparkles, Loader2, Download, Copy, Upload, Image as ImageIcon, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Sparkles, Loader2, Upload } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useSprites } from '@/hooks/use-sprites';
+import { StyleSelector } from '@/components/generate/StyleSelector';
+import { ReferenceUploader } from '@/components/generate/ReferenceUploader';
+import { GenerationConfig } from '@/components/generate/GenerationConfig';
+import { GenerationProgress } from '@/components/generate/GenerationProgress';
+import { SpriteResultPanel } from '@/components/generate/SpriteResultPanel';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
-
-const GRID_SIZES: { value: GridSize; label: string }[] = [
-  { value: '32x32', label: '32×32' },
-  { value: '64x64', label: '64×64' },
-  { value: '128x128', label: '128×128' },
-  { value: '256x256', label: '256×256' },
-  { value: '512x512', label: '512×512' },
-];
-
-const VIEWING_ANGLES: { value: ViewingAngle; label: string }[] = [
-  { value: 'front', label: 'Front' },
-  { value: 'back', label: 'Back' },
-  { value: 'left-side', label: 'Left Side' },
-  { value: 'right-side', label: 'Right Side' },
-  { value: 'three-quarter-front-left', label: '¾ Front Left' },
-  { value: 'three-quarter-front-right', label: '¾ Front Right' },
-  { value: 'three-quarter-back-left', label: '¾ Back Left' },
-  { value: 'three-quarter-back-right', label: '¾ Back Right' },
-  { value: 'top-down', label: 'Top Down' },
-  { value: 'isometric', label: 'Isometric' },
-];
-
-const POSES: { value: SpritePose; label: string }[] = [
-  { value: 'idle', label: 'Idle' },
-  { value: 'walking', label: 'Walking' },
-  { value: 'running', label: 'Running' },
-  { value: 'jumping', label: 'Jumping' },
-  { value: 'falling', label: 'Falling' },
-  { value: 'attacking-melee', label: 'Melee Attack' },
-  { value: 'attacking-ranged', label: 'Ranged Attack' },
-  { value: 'magic-casting', label: 'Magic Casting' },
-  { value: 'blocking', label: 'Blocking' },
-  { value: 'crouching', label: 'Crouching' },
-  { value: 'climbing', label: 'Climbing' },
-  { value: 'swimming', label: 'Swimming' },
-  { value: 'dying', label: 'Dying' },
-  { value: 'hurt', label: 'Hurt' },
-  { value: 'celebrating', label: 'Celebrating' },
-  { value: 'sitting', label: 'Sitting' },
-  { value: 'sleeping', label: 'Sleeping' },
-  { value: 'dashing', label: 'Dashing' },
-  { value: 'flying', label: 'Flying' },
-  { value: 'charging', label: 'Charging' },
-];
 
 const MAX_RETRIES = 3;
 
-/** Extract palette and pixel data from an image using canvas */
 function extractPixelData(
   imageData: string,
   frameCount: number,
@@ -130,7 +85,8 @@ interface QAStatus {
 
 export default function GeneratePage() {
   const { addSprite } = useSprites();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form state
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [gridSize, setGridSize] = useState<GridSize>('64x64');
@@ -138,6 +94,8 @@ export default function GeneratePage() {
   const [pose, setPose] = useState<SpritePose>('idle');
   const [frameCount, setFrameCount] = useState(1);
   const [styleId, setStyleId] = useState('pixel-16bit');
+
+  // Generation state
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
@@ -147,24 +105,14 @@ export default function GeneratePage() {
 
   const selectedStyle = getStyleById(styleId);
 
-  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast({ title: 'Please upload an image file' });
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: 'Image must be under 10MB' });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setReferenceImage(dataUrl);
-      setReferencePreview(dataUrl);
-    };
-    reader.readAsDataURL(file);
+  const handleUpload = useCallback((dataUrl: string) => {
+    setReferenceImage(dataUrl);
+    setReferencePreview(dataUrl);
+  }, []);
+
+  const handleClearRef = useCallback(() => {
+    setReferenceImage(null);
+    setReferencePreview(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -183,7 +131,6 @@ export default function GeneratePage() {
         setProgressMessage(attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES} — Regenerating...` : 'Analyzing reference image...');
         setProgress(attempt > 1 ? 5 : 10);
 
-        // Step 1: Generate
         setProgressMessage(attempt > 1 ? `Retry ${attempt} — AI is generating...` : 'AI is generating your sprite...');
         const progressInterval = setInterval(() => {
           setProgress(p => Math.min(p + 0.5, 60));
@@ -207,7 +154,6 @@ export default function GeneratePage() {
         setProgress(65);
         setProgressMessage('Post-processing...');
 
-        // Step 2: Post-process
         let processedImage = data.imageData;
         if (selectedStyle.pixelate || selectedStyle.clampPalette || selectedStyle.monoThreshold || selectedStyle.posterize) {
           processedImage = await postProcessImage(processedImage, selectedStyle, size, size);
@@ -216,10 +162,8 @@ export default function GeneratePage() {
         setProgress(75);
         setProgressMessage('Running quality checks...');
 
-        // Step 3: Objective QA
         const objectiveResult = await runObjectiveQA(processedImage, selectedStyle, size, size);
 
-        // Step 4: Perceptual QA (AI-based)
         let perceptualResult = { passed: true, score: 7, issues: [] as string[], suggestions: [] as string[] };
         try {
           const { data: qaData } = await supabase.functions.invoke('qa-check', {
@@ -239,15 +183,8 @@ export default function GeneratePage() {
 
         setProgress(85);
 
-        const allIssues = [
-          ...objectiveResult.issues.map(i => i.message),
-          ...perceptualResult.issues,
-        ];
-        const allSuggestions = [
-          ...objectiveResult.issues.map(i => i.suggestion),
-          ...perceptualResult.suggestions,
-        ];
-
+        const allIssues = [...objectiveResult.issues.map(i => i.message), ...perceptualResult.issues];
+        const allSuggestions = [...objectiveResult.issues.map(i => i.suggestion), ...perceptualResult.suggestions];
         const overallPassed = objectiveResult.passed && perceptualResult.passed;
 
         setQaStatus({
@@ -260,7 +197,6 @@ export default function GeneratePage() {
           passed: overallPassed,
         });
 
-        // If QA failed and we have retries left, continue loop
         if (!overallPassed && attempt < MAX_RETRIES) {
           setProgressMessage(`Quality check failed (attempt ${attempt}/${MAX_RETRIES}). Retrying...`);
           toast({
@@ -270,7 +206,6 @@ export default function GeneratePage() {
           continue;
         }
 
-        // Step 5: Extract pixel data
         setProgress(90);
         setProgressMessage('Extracting pixel data...');
         const fw = Number(data.frameWidth);
@@ -326,7 +261,7 @@ export default function GeneratePage() {
           });
         }
 
-        break; // Success — exit retry loop
+        break;
       } catch (err: any) {
         if (attempt >= MAX_RETRIES) {
           console.error('Generation failed after retries:', err);
@@ -343,250 +278,92 @@ export default function GeneratePage() {
     setGenerating(false);
   }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (result) {
       addSprite(result as any);
       toast({ title: '✓ Saved to library' });
     }
-  };
+  }, [result, addSprite]);
 
-  const handleDownloadPNG = () => {
-    if (!result) return;
-    const a = document.createElement('a');
-    a.href = result.imageData;
-    a.download = `sprite_${result.pose}_${result.viewingAngle}.png`;
-    a.click();
-  };
-
-  const handleDownloadJSON = () => {
-    if (!jsonOutput) return;
-    const blob = new Blob([jsonOutput], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sprite_${result?.pose}_${result?.viewingAngle}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCopyJSON = () => {
-    if (!jsonOutput) return;
-    navigator.clipboard.writeText(jsonOutput);
-    toast({ title: 'JSON copied to clipboard' });
-  };
+  const canGenerate = !!referenceImage && !!selectedStyle && !generating;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto animate-fade-in">
-      <h1 className="font-pixel text-lg text-primary glow-green mb-6">SPRITE FORGE</h1>
+    <div className="h-full flex flex-col">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-card/30">
+        <h1 className="font-pixel text-xs text-primary glow-green tracking-wider">SPRITE FORGE</h1>
+        <Button
+          onClick={handleGenerate}
+          disabled={!canGenerate}
+          size="sm"
+          className="font-pixel text-[10px] gap-2 glow-box-green h-8 px-5"
+        >
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {generating ? 'GENERATING...' : 'GENERATE'}
+        </Button>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Input Panel */}
-        <div className="space-y-5">
-          {/* Style Selector */}
-          <div className="p-4 bg-card rounded-lg pixel-border space-y-3">
-            <label className="text-xs text-muted-foreground uppercase tracking-wider">Art Style</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[280px] overflow-y-auto pr-1">
-              {ART_STYLES.map(style => (
-                <button
-                  key={style.id}
-                  onClick={() => setStyleId(style.id)}
-                  className={`relative p-3 rounded-lg border text-left transition-all ${
-                    styleId === style.id
-                      ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                      : 'border-border bg-secondary/30 hover:border-primary/40 hover:bg-secondary/60'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">{style.icon}</span>
-                    <span className="text-xs font-semibold truncate">{style.shortName}</span>
-                  </div>
-                  <p className="text-[9px] text-muted-foreground leading-tight line-clamp-2">{style.description}</p>
-                  <div
-                    className="absolute top-1 right-1 w-2 h-2 rounded-full"
-                    style={{ backgroundColor: style.accent }}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto p-6 space-y-6">
+          {/* Step 1: Style */}
+          <section className="rounded-xl border border-border bg-card/50 p-5">
+            <StyleSelector selectedId={styleId} onSelect={setStyleId} />
+          </section>
 
-          {/* Reference + Options */}
-          <div className="p-4 bg-card rounded-lg pixel-border space-y-4">
-            <label className="text-xs text-muted-foreground uppercase tracking-wider">Reference Sprite</label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              className="hidden"
-            />
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors min-h-[120px]"
-            >
-              {referencePreview ? (
-                <img
-                  src={referencePreview}
-                  alt="Reference sprite"
-                  className="max-h-[100px] max-w-full object-contain pixelated"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-              ) : (
-                <>
-                  <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Click to upload a key sprite</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">PNG, JPG, WEBP up to 10MB</p>
-                </>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Grid Size</label>
-                <Select value={gridSize} onValueChange={v => setGridSize(v as GridSize)}>
-                  <SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {GRID_SIZES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Viewing Angle</label>
-                <Select value={viewingAngle} onValueChange={v => setViewingAngle(v as ViewingAngle)}>
-                  <SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {VIEWING_ANGLES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Pose / Action</label>
-              <Select value={pose} onValueChange={v => setPose(v as SpritePose)}>
-                <SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {POSES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-[10px] text-muted-foreground uppercase mb-2 block">
-                Frames: <span className="text-primary">{frameCount}</span>
-              </label>
-              <Slider value={[frameCount]} onValueChange={([v]) => setFrameCount(v)} min={1} max={4} step={1} />
-            </div>
-          </div>
-
-          <Button
-            onClick={handleGenerate}
-            disabled={generating || !referenceImage}
-            className="w-full h-12 font-pixel text-xs gap-2 glow-box-green"
-          >
-            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {generating ? 'GENERATING...' : 'GENERATE SPRITE'}
-          </Button>
-
-          {generating && (
-            <div className="space-y-1">
-              <Progress value={progress} className="h-2" />
-              <p className="text-[10px] text-muted-foreground text-center">{Math.round(progress)}% — {progressMessage}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Preview Panel */}
-        <div className="p-4 bg-card rounded-lg pixel-border">
-          {result ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h2 className="font-pixel text-[10px] text-primary">PREVIEW</h2>
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleDownloadPNG}>
-                    <Download className="h-3 w-3" /> PNG
-                  </Button>
-                  <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleDownloadJSON}>
-                    <Download className="h-3 w-3" /> JSON
-                  </Button>
-                  <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleCopyJSON}>
-                    <Copy className="h-3 w-3" /> Copy
-                  </Button>
-                  <Button variant="secondary" size="sm" className="text-xs gap-1" onClick={handleSave}>
-                    <ImageIcon className="h-3 w-3" /> Save
-                  </Button>
-                </div>
-              </div>
-
-              <SpritePreviewPlayer
-                imageData={result.imageData}
-                frameWidth={result.frameWidth}
-                frameHeight={result.frameHeight}
+          {/* Step 2: Reference + Config side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <section className="rounded-xl border border-border bg-card/50 p-5">
+              <ReferenceUploader
+                preview={referencePreview}
+                onUpload={handleUpload}
+                onClear={handleClearRef}
               />
+            </section>
 
-              {/* QA Results */}
-              {qaStatus && (
-                <div className={`p-3 rounded-lg border text-xs ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {qaStatus.passed ? (
-                      <CheckCircle2 className="h-4 w-4 text-primary" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-destructive" />
-                    )}
-                    <span className="font-semibold">
-                      QA {qaStatus.passed ? 'Passed' : 'Warnings'} — Attempt {qaStatus.attempt}/{qaStatus.maxAttempts}
-                    </span>
-                    <span className="ml-auto text-muted-foreground">
-                      Obj: {qaStatus.objectiveScore}/10 | AI: {qaStatus.perceptualScore}/10
-                    </span>
-                  </div>
-                  {qaStatus.issues.length > 0 && (
-                    <ul className="space-y-1 text-muted-foreground">
-                      {qaStatus.issues.slice(0, 5).map((issue, i) => (
-                        <li key={i} className="flex items-start gap-1">
-                          <span className="text-destructive mt-0.5">•</span>
-                          <span>{issue}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
+            <section className="rounded-xl border border-border bg-card/50 p-5">
+              <GenerationConfig
+                gridSize={gridSize}
+                viewingAngle={viewingAngle}
+                pose={pose}
+                frameCount={frameCount}
+                onGridSizeChange={setGridSize}
+                onViewingAngleChange={setViewingAngle}
+                onPoseChange={setPose}
+                onFrameCountChange={setFrameCount}
+              />
+            </section>
+          </div>
 
-              {result.palette && result.palette.length > 1 && (
-                <div>
-                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">PALETTE ({result.palette.length - 1} colors)</h3>
-                  <div className="flex flex-wrap gap-1">
-                    {result.palette.filter(c => c !== 'transparent').map((color, i) => (
-                      <div
-                        key={i}
-                        className="w-6 h-6 rounded border border-border"
-                        style={{ backgroundColor: color }}
-                        title={color}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* Progress */}
+          <GenerationProgress
+            progress={progress}
+            message={progressMessage}
+            generating={generating}
+            qaStatus={qaStatus}
+          />
 
-              {jsonOutput && (
-                <div>
-                  <h3 className="font-pixel text-[10px] text-muted-foreground mb-2">JSON DATA</h3>
-                  <pre className="text-[10px] text-muted-foreground bg-secondary/50 p-3 rounded-lg max-h-[200px] overflow-auto font-mono">
-                    {jsonOutput}
-                  </pre>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center">
-              <div className="w-16 h-16 rounded-lg bg-secondary flex items-center justify-center mb-4">
+          {/* Result */}
+          {result ? (
+            <section className="rounded-xl border border-border bg-card/50 p-5">
+              <SpriteResultPanel
+                result={result}
+                jsonOutput={jsonOutput}
+                onSave={handleSave}
+                onRetry={handleGenerate}
+                generating={generating}
+              />
+            </section>
+          ) : !generating ? (
+            <section className="rounded-xl border border-dashed border-border bg-card/20 p-12 flex flex-col items-center justify-center text-center">
+              <div className="rounded-2xl bg-secondary/50 p-4 mb-4">
                 <Upload className="h-8 w-8 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">Upload a reference sprite to get started</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">Select a style, configure options, and generate</p>
-            </div>
-          )}
+              <p className="text-sm text-muted-foreground font-medium">Upload a reference & generate</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">
+                Pick a style, upload your character, configure settings, then hit Generate
+              </p>
+            </section>
+          ) : null}
         </div>
       </div>
     </div>
