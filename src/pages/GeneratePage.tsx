@@ -1,13 +1,17 @@
 import { useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { getStyleById } from '@/lib/art-styles';
 import { postProcessImage } from '@/lib/post-process';
 import { runObjectiveQA } from '@/lib/qa-checks';
+import { Sparkles, Loader2, Upload, Copy, Save, RotateCcw, FileJson, Image as ImageIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useSprites } from '@/hooks/use-sprites';
-import { GenerateControlPanel } from '@/components/generate/GenerateControlPanel';
-import { GenerateStage } from '@/components/generate/GenerateStage';
-import { GenerateInspector } from '@/components/generate/GenerateInspector';
+import { StyleSelector } from '@/components/generate/StyleSelector';
+import { ReferenceUploader } from '@/components/generate/ReferenceUploader';
+import { GenerationConfig } from '@/components/generate/GenerationConfig';
+import { GenerationProgress } from '@/components/generate/GenerationProgress';
+import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
 
 const MAX_RETRIES = 3;
@@ -159,58 +163,129 @@ export default function GeneratePage() {
   }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview]);
 
   const handleSave = () => { if (result) { addSprite(result as any); toast({ title: '✓ Saved to library' }); } };
+  const handleDownloadPNG = () => { if (!result) return; const a = document.createElement('a'); a.href = result.imageData; a.download = `sprite_${result.pose}_${result.viewingAngle}.png`; a.click(); };
+  const handleDownloadJSON = () => { if (!jsonOutput) return; const b = new Blob([jsonOutput], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = `sprite_${result?.pose}_${result?.viewingAngle}.json`; a.click(); URL.revokeObjectURL(u); };
+  const handleCopyJSON = () => { if (!jsonOutput) return; navigator.clipboard.writeText(jsonOutput); toast({ title: 'Copied to clipboard' }); };
 
   const canGenerate = !!referenceImage && !!selectedStyle && !generating;
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 xl:grid-cols-[22rem_minmax(0,1fr)_22rem]">
-      <div className="order-2 min-h-0 border-t border-border xl:order-1 xl:border-r xl:border-t-0">
-        <GenerateControlPanel
-          selectedStyle={selectedStyle}
-          styleId={styleId}
-          onStyleChange={setStyleId}
-          referencePreview={referencePreview}
-          onUpload={handleUpload}
-          onClearReference={handleClearRef}
-          gridSize={gridSize}
-          viewingAngle={viewingAngle}
-          pose={pose}
-          frameCount={frameCount}
-          onGridSizeChange={setGridSize}
-          onViewingAngleChange={setViewingAngle}
-          onPoseChange={setPose}
-          onFrameCountChange={setFrameCount}
-          generating={generating}
-          canGenerate={canGenerate}
-          onGenerate={handleGenerate}
-        />
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Style strip */}
+      <div className="flex-shrink-0 border-b border-border bg-card/30 px-4 py-2">
+        <StyleSelector selectedId={styleId} onSelect={setStyleId} />
       </div>
 
-      <div className="order-1 min-h-0 xl:order-2">
-        <GenerateStage
-          result={result}
-          referencePreview={referencePreview}
-          selectedStyle={selectedStyle}
-          gridSize={gridSize}
-          viewingAngle={viewingAngle}
-          pose={pose}
-          frameCount={frameCount}
-        />
-      </div>
+      {/* Two-panel layout */}
+      <div className="flex-1 flex min-h-0">
+        {/* LEFT: Config */}
+        <div className="w-64 flex-shrink-0 border-r border-border bg-card/20 flex flex-col overflow-y-auto">
+          <div className="p-4 space-y-5 flex-1">
+            <ReferenceUploader preview={referencePreview} onUpload={handleUpload} onClear={handleClearRef} />
+            <GenerationConfig
+              gridSize={gridSize} viewingAngle={viewingAngle} pose={pose} frameCount={frameCount}
+              onGridSizeChange={setGridSize} onViewingAngleChange={setViewingAngle}
+              onPoseChange={setPose} onFrameCountChange={setFrameCount}
+            />
+          </div>
+          <div className="p-3 border-t border-border bg-card/30">
+            <Button onClick={handleGenerate} disabled={!canGenerate} className="w-full h-9 font-pixel text-[10px] gap-2 glow-box-green">
+              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {generating ? 'GENERATING...' : 'GENERATE'}
+            </Button>
+          </div>
+        </div>
 
-      <div className="order-3 min-h-0 border-t border-border xl:border-l xl:border-t-0">
-        <GenerateInspector
-          selectedStyle={selectedStyle}
-          referencePreview={referencePreview}
-          generating={generating}
-          progress={progress}
-          progressMessage={progressMessage}
-          qaStatus={qaStatus}
-          result={result}
-          jsonOutput={jsonOutput}
-          onRetry={handleGenerate}
-          onSave={handleSave}
-        />
+        {/* RIGHT: Canvas */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {generating && (
+            <div className="flex-shrink-0 px-4 py-2 border-b border-border bg-card/20">
+              <GenerationProgress progress={progress} message={progressMessage} generating={generating} qaStatus={null} />
+            </div>
+          )}
+
+          <div className="flex-1 overflow-auto p-4">
+            {result ? (
+              <div className="h-full flex flex-col">
+                {/* Action bar */}
+                <div className="flex items-center justify-between mb-3 flex-shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{result.name}</span>
+                    <span className="text-[9px] text-muted-foreground">{result.frameWidth}×{result.frameHeight} · {result.frameCount}f</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleGenerate} disabled={generating}>
+                      <RotateCcw className="h-3 w-3" /> Retry
+                    </Button>
+                    <div className="h-4 w-px bg-border" />
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadPNG}>
+                      <ImageIcon className="h-3 w-3" /> PNG
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleDownloadJSON}>
+                      <FileJson className="h-3 w-3" /> JSON
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1" onClick={handleCopyJSON}>
+                      <Copy className="h-3 w-3" /> Copy
+                    </Button>
+                    <div className="h-4 w-px bg-border" />
+                    <Button size="sm" className="h-7 text-[10px] gap-1 font-semibold" onClick={handleSave}>
+                      <Save className="h-3 w-3" /> Save
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div className="flex-1 min-h-0">
+                  <SpritePreviewPlayer imageData={result.imageData} frameWidth={result.frameWidth} frameHeight={result.frameHeight} className="h-full" />
+                </div>
+
+                {/* Bottom bar: QA + Palette */}
+                <div className="flex-shrink-0 mt-3 flex gap-3">
+                  {qaStatus && (
+                    <div className={`flex-1 rounded-lg border p-3 text-[10px] ${qaStatus.passed ? 'border-primary/30 bg-primary/5' : 'border-yellow-500/30 bg-yellow-500/5'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold">QA {qaStatus.passed ? '✓ Passed' : '⚠ Warnings'}</span>
+                        <span className="text-muted-foreground ml-auto">
+                          Obj {qaStatus.objectiveScore}/10 · AI {qaStatus.perceptualScore}/10
+                          {qaStatus.attempt > 1 && ` · ${qaStatus.attempt} attempts`}
+                        </span>
+                      </div>
+                      {qaStatus.issues.length > 0 && (
+                        <ul className="space-y-0.5 text-muted-foreground mt-1">
+                          {qaStatus.issues.slice(0, 3).map((iss, i) => <li key={i}>• {iss}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {result.palette && result.palette.length > 1 && (
+                    <div className="rounded-lg border border-border p-3">
+                      <span className="text-[9px] text-muted-foreground uppercase block mb-1.5">{result.palette.length - 1} colors</span>
+                      <div className="flex flex-wrap gap-0.5">
+                        {result.palette.filter(c => c !== 'transparent').slice(0, 24).map((color, i) => (
+                          <div key={i} className="w-4 h-4 rounded-sm border border-border/50 cursor-pointer hover:scale-150 transition-transform" style={{ backgroundColor: color }} title={color} onClick={() => { navigator.clipboard.writeText(color); toast({ title: `Copied ${color}` }); }} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <div className="rounded-2xl bg-secondary/30 p-6 mb-4">
+                  <Upload className="h-10 w-10 text-muted-foreground/40" />
+                </div>
+                <p className="text-sm text-muted-foreground font-medium">
+                  {referenceImage ? 'Ready to generate' : 'Upload a reference character'}
+                </p>
+                <p className="text-[10px] text-muted-foreground/50 mt-1 max-w-[300px]">
+                  {referenceImage
+                    ? 'Configure your settings and click Generate'
+                    : 'Drop an image in the panel on the left, pick a style, and hit Generate'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
