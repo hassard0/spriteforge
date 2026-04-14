@@ -2,6 +2,31 @@ import { ART_STYLES, type ArtStyle } from '@/lib/art-styles';
 import { cn } from '@/lib/utils';
 import { Check } from 'lucide-react';
 
+// Style preview thumbnails
+import pixel8bit from '@/assets/styles/pixel-8bit.jpg';
+import pixel16bit from '@/assets/styles/pixel-16bit.jpg';
+import handDrawnDark from '@/assets/styles/hand-drawn-dark.jpg';
+import handDrawnBright from '@/assets/styles/hand-drawn-bright.jpg';
+import animeCel from '@/assets/styles/anime-cel.jpg';
+import monoSilhouette from '@/assets/styles/monochrome-silhouette.jpg';
+import vectorFlat from '@/assets/styles/vector-flat.jpg';
+import chibiManga from '@/assets/styles/chibi-manga.jpg';
+import sketchInk from '@/assets/styles/sketch-ink.jpg';
+import realisticStylized from '@/assets/styles/realistic-stylized.jpg';
+
+const STYLE_THUMBNAILS: Record<string, string> = {
+  'pixel-8bit': pixel8bit,
+  'pixel-16bit': pixel16bit,
+  'hand-drawn-dark': handDrawnDark,
+  'hand-drawn-bright': handDrawnBright,
+  'anime-cel': animeCel,
+  'monochrome-silhouette': monoSilhouette,
+  'vector-flat': vectorFlat,
+  'chibi-manga': chibiManga,
+  'sketch-ink': sketchInk,
+  'realistic-stylized': realisticStylized,
+};
+
 interface Props {
   selectedId: string;
   onSelect: (id: string) => void;
@@ -24,6 +49,7 @@ export function StyleSelector({ selectedId, onSelect }: Props) {
           <StyleCard
             key={style.id}
             style={style}
+            thumbnail={STYLE_THUMBNAILS[style.id]}
             selected={selectedId === style.id}
             onClick={() => onSelect(style.id)}
           />
@@ -33,46 +59,54 @@ export function StyleSelector({ selectedId, onSelect }: Props) {
   );
 }
 
-function StyleCard({ style, selected, onClick }: { style: ArtStyle; selected: boolean; onClick: () => void }) {
+function StyleCard({ style, thumbnail, selected, onClick }: {
+  style: ArtStyle;
+  thumbnail?: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'group relative flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-all duration-200 text-center',
+        'group relative flex flex-col overflow-hidden rounded-lg border transition-all duration-200',
         selected
-          ? 'border-primary bg-primary/10 ring-1 ring-primary shadow-[0_0_12px_hsl(var(--primary)/0.15)]'
-          : 'border-border bg-card hover:border-primary/40 hover:bg-secondary/60'
+          ? 'border-primary ring-1 ring-primary shadow-[0_0_12px_hsl(var(--primary)/0.15)]'
+          : 'border-border bg-card hover:border-primary/40'
       )}
     >
       {/* Selected indicator */}
       {selected && (
-        <div className="absolute -top-1.5 -right-1.5 rounded-full bg-primary p-0.5">
+        <div className="absolute top-1.5 right-1.5 z-10 rounded-full bg-primary p-0.5">
           <Check className="h-2.5 w-2.5 text-primary-foreground" />
         </div>
       )}
 
-      {/* Style icon */}
-      <div
-        className="flex h-10 w-10 items-center justify-center rounded-lg text-xl transition-transform group-hover:scale-110"
-        style={{ backgroundColor: `${style.accent}20` }}
-      >
-        {style.icon}
+      {/* Thumbnail */}
+      <div className="relative aspect-square bg-secondary/30 overflow-hidden">
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={style.name}
+            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+            loading="lazy"
+            width={512}
+            height={512}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-2xl">
+            {style.icon}
+          </div>
+        )}
+        {/* Overlay on hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
 
-      {/* Name */}
-      <span className="text-[11px] font-semibold leading-tight">{style.shortName}</span>
-
-      {/* Description */}
-      <p className="text-[9px] text-muted-foreground leading-tight line-clamp-2">
-        {style.description}
-      </p>
-
-      {/* Accent dot */}
-      <div
-        className="absolute bottom-1.5 left-1.5 h-1.5 w-1.5 rounded-full opacity-60"
-        style={{ backgroundColor: style.accent }}
-      />
+      {/* Label */}
+      <div className="p-2 text-center bg-card">
+        <span className="text-[10px] font-semibold leading-tight">{style.shortName}</span>
+      </div>
     </button>
   );
 }
