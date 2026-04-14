@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { getStyleById, type ArtStyle } from '@/lib/art-styles';
 import { postProcessImage } from '@/lib/post-process';
-import { runObjectiveQA } from '@/lib/qa-checks';
+
 import {
   Sparkles, Loader2, Upload, Copy, Save, RotateCcw, FileJson, Image as ImageIcon,
   X as XIcon, RefreshCw,
