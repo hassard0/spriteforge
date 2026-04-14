@@ -1,5 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { PalettePicker } from './PalettePicker';
+import type { Palette } from '@/lib/palettes';
 import type { GridSize, ViewingAngle, SpritePose } from '@/types/sprite';
 
 const GRID_SIZES: { value: GridSize; label: string }[] = [
@@ -51,15 +53,17 @@ interface Props {
   viewingAngle: ViewingAngle;
   pose: SpritePose;
   frameCount: number;
+  palette: Palette;
   onGridSizeChange: (v: GridSize) => void;
   onViewingAngleChange: (v: ViewingAngle) => void;
   onPoseChange: (v: SpritePose) => void;
   onFrameCountChange: (v: number) => void;
+  onPaletteChange: (p: Palette) => void;
 }
 
 export function GenerationConfig({
-  gridSize, viewingAngle, pose, frameCount,
-  onGridSizeChange, onViewingAngleChange, onPoseChange, onFrameCountChange,
+  gridSize, viewingAngle, pose, frameCount, palette,
+  onGridSizeChange, onViewingAngleChange, onPoseChange, onFrameCountChange, onPaletteChange,
 }: Props) {
   // Hard-cap frames to 8 when target resolution is >= 256 to avoid absurd strip widths
   const resPx = parseInt(gridSize) || 32;
@@ -84,6 +88,7 @@ export function GenerationConfig({
           aria-label="Frame count"
         />
       </div>
+      <PalettePicker value={palette} onChange={onPaletteChange} />
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { GenerationConfig } from '@/components/generate/GenerationConfig';
 import { GenerationProgress } from '@/components/generate/GenerationProgress';
 import { SpritePreviewPlayer } from '@/components/SpritePreviewPlayer';
 import type { GridSize, ViewingAngle, SpritePose, SpriteSheet } from '@/types/sprite';
+import { PRESET_PALETTES, type Palette } from '@/lib/palettes';
 
 const MAX_RETRIES = 3;
 let hasShownBgModelToast = false;
@@ -80,6 +81,7 @@ export default function GeneratePage() {
   const [pose, setPose] = useState<SpritePose>('idle');
   const [frameCount, setFrameCount] = useState(1);
   const [styleId, setStyleId] = useState('pixel-16bit');
+  const [palette, setPalette] = useState<Palette>(PRESET_PALETTES[0]);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
@@ -112,7 +114,12 @@ export default function GeneratePage() {
         setProgressMessage(attempt > 1 ? `Retry ${attempt} — Generating...` : 'AI generating sprite...');
         const pi = setInterval(() => setProgress(p => Math.min(p + 0.5, 60)), 500);
         const { data, error } = await supabase.functions.invoke('generate-sprite', {
-          body: { referenceImage, gridSize, viewingAngle, pose, frameCount, styleId },
+          body: {
+            referenceImage, gridSize, viewingAngle, pose, frameCount, styleId,
+            styleKeywords: selectedStyle.promptKeywords || selectedStyle.name,
+            styleNegative: selectedStyle.negativePrompt || '',
+            palette: { id: palette.id, colors: palette.colors },
+          },
         });
         clearInterval(pi);
         if (error) throw new Error(typeof data === 'object' && data?.error ? data.error : error.message || 'Failed');
@@ -124,7 +131,13 @@ export default function GeneratePage() {
           hasShownBgModelToast = true;
           toast({ title: 'Loading background-removal model', description: 'First-run ~4 MB download, then cached.' });
         }
-        processed = await postProcessImage(processed, selectedStyle, size, size);
+        processed = await postProcessImage(
+          processed,
+          selectedStyle,
+          size,
+          size,
+          palette.colors.length > 0 ? palette.colors : undefined,
+        );
 
         setProgress(75); setProgressMessage('Quality checking...');
         const objResult = await runObjectiveQA(processed, selectedStyle, size, size);
@@ -178,7 +191,7 @@ export default function GeneratePage() {
       }
     }
     setGenerating(false);
-  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview]);
+  }, [referenceImage, gridSize, viewingAngle, pose, frameCount, styleId, selectedStyle, referencePreview, palette]);
 
   const handleSave = () => { if (result) { addSprite(result as any); toast({ title: '✓ Saved to library' }); } };
   const handleDownloadPNG = () => { if (!result) return; const a = document.createElement('a'); a.href = result.imageData; a.download = `sprite_${result.pose}_${result.viewingAngle}.png`; a.click(); };
@@ -201,9 +214,10 @@ export default function GeneratePage() {
           <div className="p-4 space-y-5 flex-1">
             <ReferenceUploader preview={referencePreview} onUpload={handleUpload} onClear={handleClearRef} />
             <GenerationConfig
-              gridSize={gridSize} viewingAngle={viewingAngle} pose={pose} frameCount={frameCount}
+              gridSize={gridSize} viewingAngle={viewingAngle} pose={pose} frameCount={frameCount} palette={palette}
               onGridSizeChange={setGridSize} onViewingAngleChange={setViewingAngle}
               onPoseChange={setPose} onFrameCountChange={setFrameCount}
+              onPaletteChange={setPalette}
             />
           </div>
           <div className="p-3 border-t border-border bg-card/30">
